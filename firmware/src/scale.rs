@@ -10,7 +10,7 @@ use esp_idf_svc::sys::{EspError, ESP_ERR_TIMEOUT};
 use powderbot_core::scale_protocol::{parse_grains, ParseError};
 
 const PRINT_COMMAND: [u8; 2] = [0x1b, 0x70];
-const REPLY_TIMEOUT: Duration = Duration::from_millis(300);
+const REPLY_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 pub enum ScaleError {

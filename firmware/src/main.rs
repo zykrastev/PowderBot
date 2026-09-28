@@ -1,3 +1,5 @@
+mod beeper;
+mod display;
 mod pins;
 mod scale;
 
@@ -5,6 +7,8 @@ use std::thread;
 use std::time::Duration;
 
 use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver};
+use esp_idf_svc::hal::i2c::{I2cConfig, I2cDriver};
+use esp_idf_svc::hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, Resolution};
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::uart::{config, UartDriver};
 use esp_idf_svc::hal::units::Hertz;
@@ -22,10 +26,6 @@ fn main() -> Result<(), EspError> {
     let peripherals = Peripherals::take()?;
     let pins = pins::BoardPins::new(peripherals.pins);
 
-    // Keep the remaining board pins for the OLED and beeper milestones.
-    // Moving these handles does not initialize the hardware.
-    let _reserved_pins = (pins.oled_sda, pins.oled_scl, pins.beeper);
-
     // Fixed soldered connections. Hold STEP low before configuring ENABLE.
     // Keep these drivers alive for the whole test. ENABLE is active low in
     // the original firmware, so HIGH disables the motor driver.
@@ -35,6 +35,39 @@ fn main() -> Result<(), EspError> {
     motor_enable.set_high()?;
     let mut motor_direction = PinDriver::output(pins.stepper_dir)?;
     motor_direction.set_low()?;
+
+    let tone_config = TimerConfig::new()
+        .frequency(Hertz(2_000))
+        .resolution(Resolution::Bits8);
+    let tone_timer = LedcTimerDriver::new(peripherals.ledc.timer0, &tone_config)?;
+    let mut tone_pwm = LedcDriver::new(peripherals.ledc.channel0, &tone_timer, pins.beeper)?;
+    tone_pwm.set_duty(0)?;
+    let beeper = match beeper::Beeper::new(tone_pwm, tone_timer) {
+        Ok(beeper) => Some(beeper),
+        Err(error) => {
+            log::error!("Could not start beeper task: {error}");
+            None
+        }
+    };
+
+    let i2c_config = I2cConfig::new().baudrate(Hertz(100_000));
+    let oled = I2cDriver::new(peripherals.i2c0, pins.oled_sda, pins.oled_scl, &i2c_config)
+        .map_err(|error| format!("I2C init: {error}"))
+        .and_then(display::Display::new);
+
+    let mut display = match oled {
+        Ok(display) => {
+            log::info!("OLED initialized: 128x64 at 0x3C");
+            Some(display)
+        }
+        Err(error) => {
+            log::error!("{error}; continuing with serial scale output");
+            None
+        }
+    };
+
+    // Keep the boot message visible during this bring-up milestone.
+    thread::sleep(Duration::from_millis(500));
 
     let config = config::Config::default()
         .baudrate(Hertz(9_600))
@@ -53,10 +86,52 @@ fn main() -> Result<(), EspError> {
     )?;
 
     log::info!("Scale test: UART2, board pins from pins.rs, 9600 8N1; motor disabled");
+    if let Some(beeper) = &beeper {
+        if let Err(error) = beeper.play(beeper::Sound::Boot) {
+            log::warn!("Could not queue boot chime: {error}");
+        }
+    }
+    let mut scale_failed = false;
     loop {
-        match scale::read_weight(&uart) {
-            Ok(weight) => log::info!("Scale weight: {weight:.3} GN"),
-            Err(error) => log::warn!("Scale: {error}"),
+        let screen_result = match scale::read_weight(&uart) {
+            Ok(weight) => {
+                scale_failed = false;
+                log::info!("Scale weight: {weight:.3} GN");
+                match display.as_mut() {
+                    Some(display) => display.show_weight(weight),
+                    None => Ok(()),
+                }
+            }
+            Err(error) => {
+                // Sound once per failure episode, including a missing scale
+                // at startup. A valid reading rearms the notification.
+                if !scale_failed {
+                    if let Some(beeper) = &beeper {
+                        if let Err(error) = beeper.play(beeper::Sound::Error) {
+                            log::warn!("Could not queue scale error tone: {error}");
+                        }
+                    }
+                }
+                scale_failed = true;
+                log::warn!("Scale: {error}");
+                let reason = match error {
+                    scale::ScaleError::Timeout => "No reply (timeout)",
+                    scale::ScaleError::InvalidReply(
+                        powderbot_core::scale_protocol::ParseError::UnsupportedUnit,
+                    ) => "Select GN on scale",
+                    scale::ScaleError::Uart(_) | scale::ScaleError::IncompleteWrite => {
+                        "UART communication"
+                    }
+                    _ => "Invalid scale reply",
+                };
+                match display.as_mut() {
+                    Some(display) => display.show_scale_error(reason),
+                    None => Ok(()),
+                }
+            }
+        };
+        if let Err(error) = screen_result {
+            log::error!("{error}; OLED may show stale data");
         }
 
         // Slow bring-up polling keeps the serial output readable. The original
