@@ -52,6 +52,10 @@ impl<'d> Display<'d> {
         self.screen("Scale error", reason)
     }
 
+    pub fn show_network(&mut self, address: &str) -> Result<(), String> {
+        self.screen("WiFi: PowderBot", address)
+    }
+
     fn screen(&mut self, value: &str, status: &str) -> Result<(), String> {
         self.oled.clear_buffer();
         let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);

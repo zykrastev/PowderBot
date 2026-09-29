@@ -2,39 +2,42 @@ mod beeper;
 mod display;
 mod pins;
 mod scale;
+mod stepper;
+mod web;
+mod web_log;
 
 use std::thread;
 use std::time::Duration;
 
-use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver};
+use esp_idf_svc::hal::gpio::AnyIOPin;
 use esp_idf_svc::hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_svc::hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, Resolution};
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::uart::{config, UartDriver};
 use esp_idf_svc::hal::units::Hertz;
-use esp_idf_svc::sys::EspError;
 
-fn main() -> Result<(), EspError> {
+fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
 
-    // Bind the log crate to the ESP Logging facilities
-    esp_idf_svc::log::EspLogger::initialize_default();
+    // Mirror existing Rust log calls to serial and the browser's recent history.
+    let logs = web_log::init()?;
 
     // Taking ownership prevents two drivers from claiming the same peripheral.
     let peripherals = Peripherals::take()?;
     let pins = pins::BoardPins::new(peripherals.pins);
 
-    // Fixed soldered connections. Hold STEP low before configuring ENABLE.
-    // Keep these drivers alive for the whole test. ENABLE is active low in
-    // the original firmware, so HIGH disables the motor driver.
-    let mut motor_step = PinDriver::output(pins.stepper_step)?;
-    motor_step.set_low()?;
-    let mut motor_enable = PinDriver::output(pins.stepper_enable)?;
-    motor_enable.set_high()?;
-    let mut motor_direction = PinDriver::output(pins.stepper_dir)?;
-    motor_direction.set_low()?;
+    // Motor timer1/channel1 is independent of beeper timer0/channel0.
+    // It is initialized disabled and has no speed until explicitly configured.
+    let mut motor = stepper::Stepper::new(
+        peripherals.ledc.timer1,
+        peripherals.ledc.channel1,
+        pins.stepper_step,
+        pins.stepper_dir,
+        pins.stepper_enable,
+    )?;
+    motor.stop()?;
 
     let tone_config = TimerConfig::new()
         .frequency(Hertz(2_000))
@@ -85,12 +88,25 @@ fn main() -> Result<(), EspError> {
         &config,
     )?;
 
+    // Keep the web console alive. Start it before the optional motor test so
+    // test messages are available even after USB serial has been disconnected.
+    let web_console = web::WebConsole::new(peripherals.modem, logs)?;
+    if let Some(display) = display.as_mut() {
+        if let Err(error) = display.show_network(&web_console.address) {
+            log::warn!("{error}");
+        }
+    }
+    thread::sleep(Duration::from_secs(2));
+
     log::info!("Scale test: UART2, board pins from pins.rs, 9600 8N1; motor disabled");
     if let Some(beeper) = &beeper {
         if let Err(error) = beeper.play(beeper::Sound::Boot) {
             log::warn!("Could not queue boot chime: {error}");
         }
     }
+    #[cfg(feature = "motor-test")]
+    stepper::run_test(&mut motor)?;
+
     let mut scale_failed = false;
     loop {
         let screen_result = match scale::read_weight(&uart) {
