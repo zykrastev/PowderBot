@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowderBot logs</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #10151d; color: #e4eaf2; }
+  header { padding: 18px 20px; border-bottom: 1px solid #334155; }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  .bar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  #status { color: #94a3b8; }
+  button { background: #26374e; color: inherit; border: 1px solid #526783;
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+  pre { margin: 0; padding: 20px; height: calc(100dvh - 190px); overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 monospace; }
+  footer { color: #94a3b8; padding: 10px 20px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PowderBot · logs</h1>
+  <div class="bar">
+    <span id="status" role="status">Connecting…</span>
+    <button id="pause" type="button">Pause view</button>
+    <label><input id="follow" type="checkbox" checked> Auto-scroll</label>
+  </div>
+</header>
+<pre id="logs" aria-label="Firmware log output">Waiting for firmware messages…</pre>
+<footer>Latest 96 Rust log messages · refreshes every second · read-only</footer>
+<script>
+  const output = document.getElementById('logs');
+  const status = document.getElementById('status');
+  const pause = document.getElementById('pause');
+  const follow = document.getElementById('follow');
+  let paused = false;
+  pause.onclick = () => {
+    paused = !paused;
+    pause.textContent = paused ? 'Resume view' : 'Pause view';
+    status.textContent = paused ? 'View paused — firmware keeps running' : 'Connecting…';
+  };
+  async function poll() {
+    if (!paused) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const response = await fetch('/logs', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        if (!paused) {
+          // Treat device output as text, never as HTML.
+          output.textContent = text || 'No messages yet.';
+          if (follow.checked) output.scrollTop = output.scrollHeight;
+          status.textContent = 'Connected · ' + new Date().toLocaleTimeString();
+        }
+      } catch (error) {
+        if (!paused) status.textContent = 'Disconnected — retrying…';
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    // Poll sequentially: never accumulate requests on a slow connection.
+    setTimeout(poll, 1000);
+  }
+  poll();
+</script>
+</body>
+</html>
