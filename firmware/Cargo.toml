@@ -30,5 +30,10 @@ esp-idf-svc = { version = "0.53", features = ["critical-section", "embassy-time-
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 powderbot-core = { version = "0.1.0", path = "../core" }
 
+[features]
+default = []
+# Runs a short motor test once at EVERY boot of this firmware image.
+motor-test = []
+
 [build-dependencies]
 embuild = "0.33.5"
