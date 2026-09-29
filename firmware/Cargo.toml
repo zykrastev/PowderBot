@@ -22,7 +22,9 @@ esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf.git" }
 esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf.git" }
 
 [dependencies]
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
+anyhow = "1"
+embedded-svc = "0.29"
 ssd1306 = "0.10"
 embedded-graphics = "0.8"
 esp-idf-svc = { version = "0.53", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
