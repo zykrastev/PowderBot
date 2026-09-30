@@ -1,0 +1,13 @@
+{
+  "storageName": "migration_api_test",
+  "version": 1,
+  "id": "migration_api_test",
+  "name": "API migration test",
+  "fineStartPercent": 75,
+  "trickleStartPercent": 97,
+  "stopPercent": 99.5,
+  "coarseSpeedPercent": 100,
+  "fineSpeedPercent": 50,
+  "trickleSpeedPercent": 50,
+  "settleTimeMs": 300
+}

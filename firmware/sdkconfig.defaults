@@ -1,6 +1,6 @@
-# Rust often needs a bit of an extra main task stack size compared to C (the default is 3K)
-# You might have to increase this further if you allocate large stack variables in the main task
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# Profile JSON loading runs on main. With powderbot-core temporarily built at
+# opt-level=0 (Xtensa LLVM workaround), the previous 8 KiB stack overflowed.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
 
 # Increase a bit these stack sizes as they are also a bit too small by default
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
@@ -13,3 +13,6 @@ CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=4096
 
 # Desktop/mobile browser headers can exceed ESP-IDF's default limit.
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+
+# Physical capacity confirmed with espflash board-info.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

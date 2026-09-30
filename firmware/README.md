@@ -1,10 +1,79 @@
+# Persistent profile storage
+
+The dashboard and profile API are now included. Open **http://192.168.71.1/**
+for the dashboard, or **http://192.168.71.1/console** for logs.
+
+`core/src/profile.rs` parses and validates the C++ version-1 profile format,
+including the legacy speed fields. `core/src/profile_store.rs` handles profile
+files, active selection, bounded reads (4096 bytes), and a 64-profile limit.
+Invalid files are reported separately from valid profiles. Active-selection
+errors mean no usable active profile; callers must report the diagnostic.
+`firmware/src/storage.rs` owns the LittleFS mount for the lifetime of `main`.
+
+The confirmed 4 MB board uses `partitions.csv`: a 2.5 MiB app partition and
+1472 KiB of LittleFS, plus NVS/PHY/system space. Always pass this table when
+flashing; the `cargo run` runner now includes it. Manual commands below avoid
+opening a serial monitor. The first build downloads the LittleFS component.
+No separate filesystem image or upload tool is needed.
+
+**First initialization and test (run yourself):**
+
+```sh
+cd /data/Projects/PowderBot/core
+cargo +stable fmt
+cargo +stable test
+cd ../firmware
+source "$HOME/export-esp.sh"
+cargo fmt
+cargo build --features storage-init,storage-test
+espflash flash --partition-table partitions.csv --flash-size 4mb target/xtensa-esp32-espidf/debug/firmware
+```
+
+`storage-init` formats the storage partition **only after a failed mount**.
+That can erase a damaged filesystem as well as initialize a fresh one. Remove
+this feature from the installed image after setup. Normal firmware never
+formats on mount failure. Do not combine storage bring-up with `motor-test`;
+the compiler rejects that combination.
+
+Open the log viewer and look for `LittleFS mounted` and
+`Storage probe: written and verified; reboot to check persistence`.
+Reset/power-cycle the board and expect
+`Storage probe: existing record verified (persistence OK)`.
+The reserved probe is never selected as a powder profile, and unexpected
+contents produce an error instead of being overwritten.
+
+Then remove formatting permission while retaining the readback check:
+
+```sh
+cargo build --features storage-test
+espflash flash --partition-table partitions.csv --flash-size 4mb target/xtensa-esp32-espidf/debug/firmware
+```
+
+Confirm the existing-record message again. Finally install ordinary firmware:
+
+```sh
+cargo build
+espflash flash --partition-table partitions.csv --flash-size 4mb target/xtensa-esp32-espidf/debug/firmware
+```
+
+Confirm mounting, scale/OLED readings, browser logs, and a stationary motor.
+Ordinary startup does not write a probe. The reserved record stays on disk for
+future readback. Subsequent firmware flashes using this layout preserve the
+storage partition; do not change offsets or request a flash erase.
+
+Writes sync and verify a temporary file before replacing the primary, retain a
+backup during replacement, and recover a valid backup when the primary is
+missing or corrupt. Temporary-only files are not accepted as committed data.
+Host tests cover these interrupted file states; they do not establish physical
+flash power-loss guarantees.
+
 # Scale and OLED bring-up
 
 ## Browser log viewer
 
 The ESP32 creates Wi-Fi **PowderBot**, password **powderbot** (same as the
 original C++ firmware). Connect a phone or computer, stay connected even if it
-reports no internet, and open **http://192.168.71.1/**. The actual AP address
+reports no internet, and open **http://192.168.71.1/console**. The actual AP address
 also appears briefly on the OLED at startup and is recorded in the log.
 This address comes from the Rust network stack's default router configuration;
 it differs from the original Arduino setup.
@@ -30,7 +99,7 @@ cd ../firmware
 source "$HOME/export-esp.sh"
 cargo fmt
 cargo build
-espflash flash target/xtensa-esp32-espidf/debug/firmware
+espflash flash --partition-table partitions.csv --flash-size 4mb target/xtensa-esp32-espidf/debug/firmware
 ```
 
 For the existing motor sweep, build with `cargo build --features motor-test`

@@ -1,69 +1,412 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PowderBot logs</title>
-<style>
-  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
-  body { margin: 0; background: #10151d; color: #e4eaf2; }
-  header { padding: 18px 20px; border-bottom: 1px solid #334155; }
-  h1 { margin: 0 0 8px; font-size: 22px; }
-  .bar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-  #status { color: #94a3b8; }
-  button { background: #26374e; color: inherit; border: 1px solid #526783;
-    border-radius: 6px; padding: 8px 14px; cursor: pointer; }
-  pre { margin: 0; padding: 20px; height: calc(100dvh - 190px); overflow: auto;
-    white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 monospace; }
-  footer { color: #94a3b8; padding: 10px 20px; font-size: 12px; }
-</style>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>PowderBot</title>
+
+    <link rel="stylesheet" href="css/app.css">
+
 </head>
+
 <body>
-<header>
-  <h1>PowderBot · logs</h1>
-  <div class="bar">
-    <span id="status" role="status">Connecting…</span>
-    <button id="pause" type="button">Pause view</button>
-    <label><input id="follow" type="checkbox" checked> Auto-scroll</label>
-  </div>
-</header>
-<pre id="logs" aria-label="Firmware log output">Waiting for firmware messages…</pre>
-<footer>Latest 96 Rust log messages · refreshes every second · read-only</footer>
-<script>
-  const output = document.getElementById('logs');
-  const status = document.getElementById('status');
-  const pause = document.getElementById('pause');
-  const follow = document.getElementById('follow');
-  let paused = false;
-  pause.onclick = () => {
-    paused = !paused;
-    pause.textContent = paused ? 'Resume view' : 'Pause view';
-    status.textContent = paused ? 'View paused — firmware keeps running' : 'Connecting…';
-  };
-  async function poll() {
-    if (!paused) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      try {
-        const response = await fetch('/logs', { cache: 'no-store', signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const text = await response.text();
-        if (!paused) {
-          // Treat device output as text, never as HTML.
-          output.textContent = text || 'No messages yet.';
-          if (follow.checked) output.scrollTop = output.scrollHeight;
-          status.textContent = 'Connected · ' + new Date().toLocaleTimeString();
-        }
-      } catch (error) {
-        if (!paused) status.textContent = 'Disconnected — retrying…';
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-    // Poll sequentially: never accumulate requests on a slow connection.
-    setTimeout(poll, 1000);
-  }
-  poll();
-</script>
+
+    <div class="app">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+
+            <div class="sidebar__logo">
+
+                <img src="img/logo.svg" alt="PowderBot">
+
+                <span>PowderBot</span>
+
+            </div>
+
+            <nav class="sidebar__nav">
+
+                <button class="nav-item active" data-page="dashboard">
+
+                    <img src="img/icons/house.svg" class="icon" alt="">
+                    <span>Dashboard</span>
+
+                </button>
+
+                <button class="nav-item" data-page="profiles">
+
+                    <img src="img/icons/flask-conical.svg" class="icon" alt="">
+                    <span>Profiles</span>
+
+                </button>
+
+                <button class="nav-item" data-page="system">
+
+                    <img src="img/icons/cpu.svg" class="icon" alt="">
+                    <span>System</span>
+
+                </button>
+
+            </nav>
+
+            <div class="sidebar__network">
+
+                <div class="network-icon">
+
+                    <img src="img/icons/wifi.svg" class="icon" alt="">
+
+                </div>
+
+                <div>
+
+                    <div class="network-ip">
+
+                        —
+
+                    </div>
+
+                    <div class="network-status">
+
+                        Connecting…
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </aside>
+
+        <!-- Main -->
+        <main class="content">
+            <p class="migration-note">Scale readings and profile management are available. Dispensing, tare, and controller reset will follow. <a href="/console">Open log console</a></p>
+            <p id="apiNotice" role="alert"></p>
+            <p id="profileWarning" role="status"></p>
+            <!-- Dashboard -->
+            <section id="dashboardPage" class="page">
+
+                <!-- Header -->
+                <header class="header">
+
+                    <div>
+
+                        <h1>Dashboard</h1>
+                        <p>Scale readings and settings</p>
+
+                    </div>
+
+                    <div class="header-right">
+
+                        <div class="status">
+
+                            <span class="status-dot"></span>
+                            <span id="statusText">Connecting…</span>
+
+                        </div>
+
+                    </div>
+
+                </header>
+
+                <!-- Top -->
+
+                <section class="top-grid">
+
+                    <article class="card target-card">
+
+                        <div class="card-title">
+
+                            Target Weight
+
+                        </div>
+
+                        <div class="target-row">
+
+                            <div class="target-value">
+
+                                <input id="targetWeight" class="number target-weight-input" type="number" min="0.01" max="1000" step="0.01" value="00.00" aria-label="Target weight in grains">
+
+                                <span id="targetWeightUnit" class="unit"> gr </span>
+
+                            </div>
+
+
+                        </div>
+
+                        <div class="tolerance-row">
+
+                            <label class="tolerance-label" for="tolerance">Tolerance</label>
+
+                            <div class="tolerance-value">
+                                <span>&plusmn;</span>
+                                <input id="tolerance" class="number tolerance-input" type="number" min="0.01" max="1000" step="0.01" value="0.02" aria-label="Tolerance in grains">
+                                <span class="unit">gr</span>
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                    <article class="card profile-card">
+
+                        <div class="card-title">
+
+                            Powder Profile
+
+                        </div>
+
+                        <select id="dashboardProfileSelect" class="profile-select" aria-label="Active powder profile">
+                            <option value="">No profile selected</option>
+                        </select>
+
+                        <button id="manageProfilesButton" class="manage-link" type="button">
+
+                            Manage Profiles
+
+                        </button>
+
+                    </article>
+
+                </section>
+
+                <!-- Main Weight Card -->
+
+                <section class="weight-card">
+
+                    <div class="weight-panel">
+
+                        <div class="card-title">
+
+                            Current Weight
+
+                        </div>
+
+                        <div class="weight-number">
+
+                            <span id="currentWeight" class="number"> — </span>
+
+                        </div>
+
+                        <div class="weight-unit">
+
+                            gr
+
+                        </div>
+
+                        <!-- Weight Toolbar -->
+                        <div class="weight-toolbar">
+                            <button disabled title="Available after the controller migration" id="tareButton" class="secondary-button">
+                                <img src="img/icons/scale.svg" class="icon" alt="">
+                                <span>Tare</span>
+                            </button>
+
+                            <button disabled title="Available after the controller migration" id="resetButton" class="secondary-button">
+                                <img src="img/icons/rotate-ccw.svg" class="icon" alt="">
+                                <span>Reset</span>
+                            </button>
+
+                            <div id="stabilityIndicator" class="stable is-unstable" aria-live="polite">
+                                <img id="stabilityIcon" src="img/icons/circle-alert.svg" class="icon-green" alt="">
+                                <span id="stabilityText">Unstable</span>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="weight-divider"></div>
+
+                    <div class="remaining-panel">
+
+                        <div class="card-title">
+                            Remaining
+                        </div>
+
+                        <div class="remaining-number">
+                            <span id="remainingWeight" class="number"> — </span>
+                        </div>
+
+                        <div class="weight-unit">
+                            gr
+                        </div>
+
+                        <div id="progressBar" class="progress" role="progressbar" aria-label="Powder filled" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+
+                            <div id="progressFill" class="progress-fill"></div>
+
+                        </div>
+
+                        <div class="progress-scale">
+                            <span>0</span>
+                            <span id="progressTarget">0.00 gr</span>
+                        </div>
+
+                        <div class="progress-percent">
+                            <span id="progressPercent">0.0%</span>
+                        </div>
+
+                    </div>
+
+                </section>
+
+                <!-- Action -->
+
+                <button disabled title="Available after the controller migration" id="startButton" class="start-button">
+                    <img id="startButtonIcon" src="img/icons/play.svg" alt="">
+                    <span id="startButtonText">Dispensing unavailable</span>
+                </button>
+
+            </section>
+
+            <!-- Profiles -->
+            <section id="profilesPage" class="page" hidden>
+
+                <header class="header">
+
+                    <div>
+
+                        <h1>Profiles</h1>
+                        <p>Powder Calibration</p>
+
+                    </div>
+
+                    <button id="newProfileButton" class="new-profile-button" type="button">
+
+                        <img src="img/icons/plus.svg" alt="">
+                        <span>New Profile</span>
+
+                    </button>
+
+                </header>
+
+                <div class="profiles-layout">
+
+                    <!-- Left -->
+
+                    <aside class="profiles-sidebar">
+
+                        <div id="profileList" class="profile-list"></div>
+
+                    </aside>
+
+                    <!-- Right -->
+
+                    <section class="profile-editor">
+
+                        <div class="editor-grid">
+
+                            <div class="field">
+
+                                <label>Profile Name</label>
+
+                                <input id="profileName" type="text" maxlength="64" required>
+
+                            </div>
+
+                        </div>
+
+                        <h3>Fill thresholds</h3>
+
+                        <div class="slider-row">
+
+                            <label for="fineStartPercent">Fine start (%)</label>
+
+                            <input id="fineStartPercent" type="number" min="0" max="100" step="0.1" value="75" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="trickleStartPercent">Trickle start (%)</label>
+
+                            <input id="trickleStartPercent" type="number" min="0" max="100" step="0.1" value="97" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="stopPercent">Stop (%)</label>
+
+                            <input id="stopPercent" type="number" min="0" max="100" step="0.1" value="99.5" required>
+
+                        </div>
+
+                        <h3>Motor speeds</h3>
+
+                        <div class="slider-row">
+
+                            <label for="coarseSpeedPercent">Coarse speed (%)</label>
+
+                            <input id="coarseSpeedPercent" type="number" min="0" max="100" step="0.1" value="100" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="fineSpeedPercent">Fine speed (%)</label>
+
+                            <input id="fineSpeedPercent" type="number" min="0" max="100" step="0.1" value="30" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="trickleSpeedPercent">Trickle speed (%)</label>
+
+                            <input id="trickleSpeedPercent" type="number" min="0" max="100" step="0.1" value="5" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="settleTimeMs">Settle time (ms)</label>
+
+                            <input id="settleTimeMs" type="number" min="0" max="4294967295" step="1" value="300" required>
+
+                        </div>
+
+                        <div class="editor-buttons">
+
+                            <button id="deleteProfileButton" class="secondary-button" type="button">
+
+                                Delete
+
+                            </button>
+
+                            <button id="saveProfileButton" class="primary-button" type="button">
+
+                                Save Changes
+
+                            </button>
+
+                        </div>
+
+                    </section>
+
+                </div>
+
+            </section>
+            <section id="systemPage" class="page" hidden>
+                <header class="header">
+                    <div>
+                        <h1>System</h1>
+                        <p>Device information</p>
+                    </div>
+                </header>
+                <article class="card system-info" aria-live="polite">
+                    <strong id="systemProductName">PowderBot</strong>
+                    <span>v<span id="systemVersion">—</span></span>
+                    <span>by <span id="systemAuthor">Zhivko Krastev</span></span>
+                </article>
+            </section>
+        </main>
+
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+
 </body>
+
 </html>

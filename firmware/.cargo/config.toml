@@ -3,7 +3,7 @@ target = "xtensa-esp32-espidf"
 
 [target.'cfg(target_os = "espidf")']
 linker = "ldproxy"
-runner = "espflash flash --monitor"
+runner = "espflash flash --partition-table partitions.csv --flash-size 4mb --monitor"
 rustflags = [ "--cfg",  "espidf_time64"]
 
 [unstable]

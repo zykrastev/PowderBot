@@ -16,6 +16,13 @@ opt-level = "s"
 [profile.dev]
 debug = true    # Symbols are nice, and they don't increase the size on Flash
 opt-level = "z"
+
+# Temporary workaround trial for Xtensa LLVM 21 aggregate-float codegen crashes.
+# Generic serde float deserialization is instantiated inside powderbot-core.
+# https://github.com/esp-rs/rust/issues/277
+[profile.dev.package.powderbot-core]
+opt-level = 0
+
 [patch.crates-io]
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf.git" }
 esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf.git" }
@@ -36,6 +43,13 @@ powderbot-core = { version = "0.1.0", path = "../core" }
 default = []
 # Runs a short motor test once at EVERY boot of this firmware image.
 motor-test = []
+# Formats only after a failed mount; remove from the image after initialization.
+storage-init = []
+# Writes a reserved probe once, then verifies it on subsequent boots.
+storage-test = []
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "joltwallet/littlefs", version = "1.14" }
 
 [build-dependencies]
 embuild = "0.33.5"

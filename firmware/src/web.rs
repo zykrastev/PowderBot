@@ -1,4 +1,4 @@
-//! A read-only log page on the same access-point network as the C++ firmware.
+//! Bundled dashboard assets and log viewer on the PowderBot access point.
 
 use embedded_svc::{http::Method, io::Write};
 use esp_idf_svc::{
@@ -14,6 +14,7 @@ use crate::web_log::SharedLogs;
 const SSID: &str = "PowderBot";
 const PASSWORD: &str = "powderbot";
 const PAGE: &str = include_str!("../web/index.html");
+include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 
 // Retaining these objects keeps the server and Wi-Fi alive.
 pub struct WebConsole {
@@ -46,7 +47,9 @@ impl WebConsole {
         let address = wifi.wifi().ap_netif().get_ip_info()?.ip.to_string();
 
         let mut server = EspHttpServer::new(&ServerConfiguration {
-            stack_size: 8192,
+            // Profile parsing currently uses unoptimized core code (LLVM workaround).
+            stack_size: 32768,
+            max_uri_handlers: 64,
             ..Default::default()
         })?;
         server.fn_handler::<anyhow::Error, _>("/", Method::Get, |request| {
@@ -80,11 +83,36 @@ impl WebConsole {
                 .write_all(snapshot.as_bytes())?;
             Ok(())
         })?;
-        log::info!("Web logs ready: connect to Wi-Fi {SSID}, open http://{address}/");
+        for &(path, mime, bytes) in ASSETS {
+            server.fn_handler::<anyhow::Error, _>(path, Method::Get, move |request| {
+                request
+                    .into_response(
+                        200,
+                        None,
+                        &[("Content-Type", mime), ("Cache-Control", "no-cache")],
+                    )?
+                    .write_all(bytes)?;
+                Ok(())
+            })?;
+        }
+        log::info!("Dashboard ready: Wi-Fi {SSID}, http://{address}/; logs at /console");
         Ok(Self {
             _server: server,
             _wifi: wifi,
             address,
         })
+    }
+
+    pub fn register_profiles(
+        &mut self,
+        profiles: Option<crate::api::SharedProfiles>,
+    ) -> anyhow::Result<()> {
+        crate::api::register(&mut self._server, profiles)
+    }
+    pub fn register_dashboard(
+        &mut self,
+        state: crate::dashboard::SharedDashboard,
+    ) -> anyhow::Result<()> {
+        crate::dashboard::register(&mut self._server, state)
     }
 }

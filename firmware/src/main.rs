@@ -1,8 +1,11 @@
+mod api;
 mod beeper;
+mod dashboard;
 mod display;
 mod pins;
 mod scale;
 mod stepper;
+mod storage;
 mod web;
 mod web_log;
 
@@ -15,6 +18,12 @@ use esp_idf_svc::hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, R
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::uart::{config, UartDriver};
 use esp_idf_svc::hal::units::Hertz;
+
+#[cfg(all(
+    feature = "motor-test",
+    any(feature = "storage-init", feature = "storage-test")
+))]
+compile_error!("Use storage bring-up features separately from motor-test");
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
@@ -90,7 +99,29 @@ fn main() -> anyhow::Result<()> {
 
     // Keep the web console alive. Start it before the optional motor test so
     // test messages are available even after USB serial has been disconnected.
-    let web_console = web::WebConsole::new(peripherals.modem, logs)?;
+    // Declare the mount owner first: reverse drop order stops HTTP handlers
+    // before unmounting their filesystem if main exits with an error.
+    let state = std::sync::Arc::new(std::sync::Mutex::new(
+        powderbot_core::dashboard::Dashboard::default(),
+    ));
+    let storage;
+    let mut web_console = web::WebConsole::new(peripherals.modem, logs)?;
+    // Retain the mount for the lifetime of main. Failure leaves scale and logs usable.
+    storage = match storage::Storage::mount() {
+        Ok(storage) => {
+            #[cfg(feature = "storage-test")]
+            if let Err(error) = storage.probe() {
+                log::error!("Storage probe failed: {error:#}");
+            }
+            Some(storage)
+        }
+        Err(error) => {
+            log::error!("Storage unavailable: {error:#}");
+            None
+        }
+    };
+    web_console.register_profiles(storage.as_ref().map(|storage| storage.profiles.clone()))?;
+    web_console.register_dashboard(state.clone())?;
     if let Some(display) = display.as_mut() {
         if let Err(error) = display.show_network(&web_console.address) {
             log::warn!("{error}");
@@ -111,6 +142,9 @@ fn main() -> anyhow::Result<()> {
     loop {
         let screen_result = match scale::read_weight(&uart) {
             Ok(weight) => {
+                if let Ok(mut state) = state.lock() {
+                    state.record(Ok(weight), std::time::Instant::now());
+                }
                 scale_failed = false;
                 log::info!("Scale weight: {weight:.3} GN");
                 match display.as_mut() {
@@ -119,6 +153,9 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Err(error) => {
+                if let Ok(mut state) = state.lock() {
+                    state.record(Err(error.to_string()), std::time::Instant::now());
+                }
                 // Sound once per failure episode, including a missing scale
                 // at startup. A valid reading rearms the notification.
                 if !scale_failed {
