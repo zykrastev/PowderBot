@@ -1,12 +1,11 @@
 # PowderBot
 
-Run core tests, build normal firmware, and upload it without a serial monitor:
+ESP32 powder dispenser with Rust firmware and a browser dashboard.
 
 ```sh
-./flash.sh
+./flash.sh                    # Test, build, and flash
+./flash.sh --port /dev/ttyUSB0
 ```
 
-Optionally specify the serial port: `./flash.sh --port /dev/ttyUSB0`.
-The script stops if any step fails. It enables neither motor-test nor storage
-initialization features. Connect to PowderBot Wi-Fi after uploading and open
-http://192.168.71.1/.
+Wi-Fi: **PowderBot**, password **powderbot**. Dashboard: http://192.168.71.1/;
+logs: http://192.168.71.1/console.
