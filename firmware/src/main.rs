@@ -90,16 +90,10 @@ fn main() -> anyhow::Result<()> {
         &config,
     )?;
 
-    // Keep the web console alive. Start it before the optional motor test so
-    // test messages are available even after USB serial has been disconnected.
-    // Declare the mount owner first: reverse drop order stops HTTP handlers
-    // before unmounting their filesystem if main exits with an error.
-    let state = std::sync::Arc::new(std::sync::Mutex::new(
-        powderbot_core::dashboard::Dashboard::default(),
-    ));
+    // Drop HTTP handlers before unmounting storage.
     let storage;
+    let _worker;
     let mut web_console = web::WebConsole::new(peripherals.modem, logs)?;
-    // Retain the mount for the lifetime of main. Failure leaves scale and logs usable.
     storage = match storage::Storage::mount() {
         Ok(storage) => {
             #[cfg(feature = "storage-test")]
@@ -113,8 +107,22 @@ fn main() -> anyhow::Result<()> {
             None
         }
     };
-    web_console.register_profiles(storage.as_ref().map(|storage| storage.profiles.clone()))?;
-    web_console.register_dashboard(state.clone())?;
+    let profiles = storage.as_ref().map(|s| s.profiles.clone());
+    let mut initial = powderbot_core::dashboard::Dashboard::default();
+    if let Some(profiles) = &profiles {
+        match profiles.lock().unwrap_or_else(|e| e.into_inner()).active() {
+            Ok(profile) => {
+                initial.select(profile).map_err(anyhow::Error::msg)?;
+            }
+            Err(error) => log::warn!("Active profile unavailable: {error}"),
+        }
+    }
+    #[cfg(feature = "motor-test")]
+    stepper::run_test(&mut motor)?;
+    let (control, events, worker) = control::spawn(motor, uart, initial)?;
+    _worker = worker;
+    web_console.register_profiles(profiles.clone(), control.clone())?;
+    web_console.register_dashboard(control.clone(), profiles)?;
     if let Some(display) = display.as_mut() {
         if let Err(error) = display.show_network(&web_console.address) {
             log::warn!("{error}");
@@ -122,66 +130,104 @@ fn main() -> anyhow::Result<()> {
     }
     thread::sleep(Duration::from_secs(2));
 
-    log::info!("Scale test: UART2, board pins from pins.rs, 9600 8N1; motor disabled");
-    if let Some(beeper) = &beeper {
-        if let Err(error) = beeper.play(beeper::Sound::Boot) {
-            log::warn!("Could not queue boot chime: {error}");
+    log::info!(
+        "Controller ready; motor disabled. Trickle pulse duration and settling delay come from the profile"
+    );
+    let play = |sound| {
+        if let Some(beeper) = &beeper {
+            if let Err(error) = beeper.play(sound) {
+                log::warn!("Could not queue sound: {error}");
+            }
         }
-    }
-    #[cfg(feature = "motor-test")]
-    stepper::run_test(&mut motor)?;
-
-    let mut scale_failed = false;
+    };
+    play(beeper::Sound::Boot);
+    let mut connected = false;
+    let mut previous = powderbot_core::controller::State::Idle;
+    let mut last_log = std::time::Instant::now();
+    let mut connected_until = std::time::Instant::now();
     loop {
-        let screen_result = match scale::read_weight(&uart) {
-            Ok(weight) => {
-                if let Ok(mut state) = state.lock() {
-                    state.record(Ok(weight), std::time::Instant::now());
+        use powderbot_core::controller::State;
+        while let Ok(event) = events.try_recv() {
+            match event {
+                control::Event::ScaleError(error) => {
+                    log::warn!("Scale: {error}");
+                    play(beeper::Sound::Error);
                 }
-                scale_failed = false;
-                log::info!("Scale weight: {weight:.3} GN");
-                match display.as_mut() {
-                    Some(display) => display.show_weight(weight),
-                    None => Ok(()),
+                control::Event::State(state) => {
+                    log::info!("Controller: {}", state.name());
+                    match state {
+                        State::Finished => play(beeper::Sound::Finished),
+                        State::Overthrown => play(beeper::Sound::Wrong),
+                        State::Error => play(beeper::Sound::Error),
+                        State::Coarse | State::Fine | State::Trickling
+                            if matches!(
+                                previous,
+                                State::Idle
+                                    | State::Settling
+                                    | State::Finished
+                                    | State::Overthrown
+                                    | State::Error
+                            ) =>
+                        {
+                            play(beeper::Sound::Dispensing)
+                        }
+                        _ => {}
+                    }
+                    previous = state;
                 }
             }
-            Err(error) => {
-                if let Ok(mut state) = state.lock() {
-                    state.record(Err(error.to_string()), std::time::Instant::now());
+        }
+        let now = std::time::Instant::now();
+        if let Ok(has_client) = web_console.has_client() {
+            if has_client != connected {
+                connected = has_client;
+                log::info!(
+                    "WiFi client {}",
+                    if connected {
+                        "connected"
+                    } else {
+                        "disconnected"
+                    }
+                );
+                if connected {
+                    play(beeper::Sound::Connected);
+                    connected_until = now + Duration::from_millis(500);
+                    if let Some(display) = display.as_mut() {
+                        if let Err(e) = display.show_connected() {
+                            log::warn!("{e}");
+                        }
+                    }
+                } else {
+                    play(beeper::Sound::Error);
                 }
-                // Sound once per failure episode, including a missing scale
-                // at startup. A valid reading rearms the notification.
-                if !scale_failed {
-                    if let Some(beeper) = &beeper {
-                        if let Err(error) = beeper.play(beeper::Sound::Error) {
-                            log::warn!("Could not queue scale error tone: {error}");
+            }
+        }
+        match control.snapshot() {
+            Ok(state) => {
+                if now.saturating_duration_since(last_log) >= Duration::from_secs(1) {
+                    if let Some((weight, _)) = state.reading(now) {
+                        log::info!(
+                            "Scale weight: {weight:.2} GN; {}",
+                            state.controller.state().name()
+                        );
+                    }
+                    last_log = now;
+                }
+                if now >= connected_until {
+                    if let Some(display) = display.as_mut() {
+                        let result = if connected || state.controller.state().active() {
+                            display.show_status(&state, now)
+                        } else {
+                            display.show_network(&web_console.address)
+                        };
+                        if let Err(error) = result {
+                            log::warn!("{error}");
                         }
                     }
                 }
-                scale_failed = true;
-                log::warn!("Scale: {error}");
-                let reason = match error {
-                    scale::ScaleError::Timeout => "No reply (timeout)",
-                    scale::ScaleError::InvalidReply(
-                        powderbot_core::scale_protocol::ParseError::UnsupportedUnit,
-                    ) => "Select GN on scale",
-                    scale::ScaleError::Uart(_) | scale::ScaleError::IncompleteWrite => {
-                        "UART communication"
-                    }
-                    _ => "Invalid scale reply",
-                };
-                match display.as_mut() {
-                    Some(display) => display.show_scale_error(reason),
-                    None => Ok(()),
-                }
             }
-        };
-        if let Err(error) = screen_result {
-            log::error!("{error}; OLED may show stale data");
+            Err((_, error)) => log::error!("{error}"),
         }
-
-        // Slow bring-up polling keeps the serial output readable. The original
-        // firmware's 100 ms cadence will return with the controller later.
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(100));
     }
 }
