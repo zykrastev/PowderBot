@@ -14,10 +14,11 @@ pub type SharedProfiles = Arc<Mutex<ProfileStore>>;
 pub fn register(
     server: &mut EspHttpServer<'static>,
     profiles: Option<SharedProfiles>,
+    control: crate::control::Control,
 ) -> anyhow::Result<()> {
     server.fn_handler::<anyhow::Error, _>("/api/system", Method::Get, |request| {
         request.into_response(200, None, &[("Content-Type", "application/json"), ("Cache-Control", "no-store")])?
-            .write_all(br#"{"name":"PowderBot","version":"0.1.0","author":"Zhivko Krastev","capabilities":{"profiles":true,"dispensing":false}}"#)?;
+            .write_all(br#"{"name":"PowderBot","version":"0.1.0","author":"Zhivko Krastev","capabilities":{"profiles":true,"dispensing":true}}"#)?;
         Ok(())
     })?;
     for (path, method, operation) in [
@@ -29,6 +30,7 @@ pub fn register(
         ("/api/active-powder", Method::Put, Operation::Select),
     ] {
         let profiles = profiles.clone();
+        let control = control.clone();
         server.fn_handler::<anyhow::Error, _>(path, method, move |mut request| {
             let query = request
                 .uri()
@@ -41,16 +43,9 @@ pub fn register(
                 Ok(body) => (body, None),
                 Err(reply) => (Vec::new(), Some(reply)),
             };
-            let reply = rejection.unwrap_or_else(|| match &profiles {
-                Some(profiles) => match profiles.lock() {
-                    Ok(mut store) => {
-                        profile_api::handle(Some(&mut store), operation, &query, &body)
-                    }
-                    Err(_) => Reply::error(503, "Profile storage lock unavailable"),
-                },
-                None => profile_api::handle(None, operation, &query, &body),
+            let reply = rejection.unwrap_or_else(|| {
+                process_profiles(&control, profiles.as_ref(), operation, &query, &body)
             });
-            // File access is finished and the lock released before sending to a slow client.
             for diagnostic in &reply.diagnostics {
                 log::warn!("Profile API: {diagnostic}");
             }
@@ -133,4 +128,45 @@ pub(crate) fn read_body(
         Some(reply) => Err(reply),
         None => Ok(body),
     }
+}
+
+fn process_profiles(
+    control: &crate::control::Control,
+    profiles: Option<&SharedProfiles>,
+    operation: Operation,
+    query: &str,
+    body: &[u8],
+) -> Reply {
+    let mutating = matches!(
+        operation,
+        Operation::Create | Operation::Update | Operation::Delete | Operation::Select
+    );
+    let _guard = match control.gate.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Reply::error(503, "Controller gate unavailable"),
+    };
+    if mutating && control.busy() {
+        return Reply::error(409, "Stop dispensing before changing profiles");
+    }
+    let Some(profiles) = profiles else {
+        return Reply::error(503, "Profile storage unavailable");
+    };
+    let mut store = match profiles.lock() {
+        Ok(store) => store,
+        Err(_) => return Reply::error(503, "Profile storage lock unavailable"),
+    };
+    let reply = profile_api::handle(Some(&mut store), operation, query, body);
+    if mutating && reply.status < 300 {
+        match store.active() {
+            Ok(profile) => {
+                if let Err((code, error)) =
+                    control.submit(crate::control::Command::Profile(profile))
+                {
+                    return Reply::error(code, &error);
+                }
+            }
+            Err(error) => return Reply::error(500, &error.to_string()),
+        }
+    }
+    reply
 }
