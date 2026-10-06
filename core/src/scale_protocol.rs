@@ -1,7 +1,4 @@
-//! Parsing for the scale's text replies. UART framing and timeouts belong
-//! in the firmware; this module receives one complete line at a time.
 
-/// Why a reply could not be interpreted as a weight in grains.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
     EmptyReply,
@@ -10,12 +7,7 @@ pub enum ParseError {
     InvalidWeight,
 }
 
-/// Parse a decimal reading such as `"-    0.10 GN\r\n"` into grains.
-///
-/// `GN` is the only accepted unit. No unit conversion is performed.
-/// Leading/trailing ASCII whitespace and padding after a sign are accepted;
-/// embedded line endings, exponent notation, and non-finite values are not.
-/// This format is based on the C++ example, pending real scale captures.
+// Unitless replies assume the scale remains set to GN.
 pub fn parse_grains(reply: &str) -> Result<f32, ParseError> {
     let line = reply.trim_ascii();
     if line.is_empty() {
@@ -25,12 +17,16 @@ pub fn parse_grains(reply: &str) -> Result<f32, ParseError> {
         return Err(ParseError::InvalidFormat);
     }
 
-    let (number, unit) = line
-        .rsplit_once(|c: char| c.is_ascii_whitespace())
-        .ok_or(ParseError::InvalidFormat)?;
-    if unit != "GN" {
-        return Err(ParseError::UnsupportedUnit);
-    }
+    let number = match line.rsplit_once(|c: char| c.is_ascii_whitespace()) {
+        Some((number, "GN")) => number,
+        Some((_, unit)) if unit.bytes().all(|byte| byte.is_ascii_alphabetic()) => {
+            return Err(ParseError::UnsupportedUnit);
+        }
+        None if line.bytes().any(|byte| byte.is_ascii_alphabetic()) => {
+            return Err(ParseError::InvalidFormat);
+        }
+        _ => line,
+    };
 
     let number = number.trim_ascii();
     let (sign, magnitude) = match number.as_bytes().first() {
@@ -39,8 +35,6 @@ pub fn parse_grains(reply: &str) -> Result<f32, ParseError> {
         _ => (1.0, number),
     };
 
-    // Validate the decimal grammar before parsing. In particular, don't
-    // silently turn a broken reading such as "1 2.50" into "12.50".
     let mut digits = 0;
     let mut dots = 0;
     for byte in magnitude.bytes() {

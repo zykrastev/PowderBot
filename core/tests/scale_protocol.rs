@@ -4,6 +4,8 @@ use powderbot_core::scale_protocol::{ParseError, parse_grains};
 fn parses_positive_weight_and_zero() {
     assert_eq!(parse_grains("12.50 GN"), Ok(12.5));
     assert_eq!(parse_grains("0 GN"), Ok(0.0));
+    assert_eq!(parse_grains("12.50"), Ok(12.5));
+    assert_eq!(parse_grains("0"), Ok(0.0));
 }
 
 #[test]
@@ -11,6 +13,8 @@ fn parses_attached_and_padded_signs() {
     assert_eq!(parse_grains("-0.10 GN"), Ok(-0.1));
     assert_eq!(parse_grains("-    0.10 GN"), Ok(-0.1));
     assert_eq!(parse_grains("+    0.10 GN"), Ok(0.1));
+    assert_eq!(parse_grains("-    0.10\r\n"), Ok(-0.1));
+    assert_eq!(parse_grains("+    0.10\r\n"), Ok(0.1));
 }
 
 #[test]
@@ -27,7 +31,7 @@ fn rejects_empty_replies() {
 
 #[test]
 fn rejects_missing_fields_and_multiple_lines() {
-    for reply in ["12.50", "GN", "12.50GN", "12.50\nGN"] {
+    for reply in ["GN", "12.50GN", "12.50\nGN"] {
         assert_eq!(parse_grains(reply), Err(ParseError::InvalidFormat));
     }
 }
