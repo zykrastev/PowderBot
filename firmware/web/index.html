@@ -190,14 +190,13 @@
 
                         </div>
 
-                        <!-- Weight Toolbar -->
                         <div class="weight-toolbar">
-                            <button disabled title="Available after the controller migration" id="tareButton" class="secondary-button">
+                            <button disabled title="Waiting for controller status" id="tareButton" class="secondary-button">
                                 <img src="img/icons/scale.svg" class="icon" alt="">
                                 <span>Tare</span>
                             </button>
 
-                            <button disabled title="Available after the controller migration" id="resetButton" class="secondary-button">
+                            <button disabled title="Waiting for controller status" id="resetButton" class="secondary-button">
                                 <img src="img/icons/rotate-ccw.svg" class="icon" alt="">
                                 <span>Reset</span>
                             </button>
@@ -245,16 +244,14 @@
 
                 </section>
 
-                <!-- Action -->
 
-                <button disabled title="Available after the controller migration" id="startButton" class="start-button">
+                <button disabled title="Waiting for controller status" id="startButton" class="start-button">
                     <img id="startButtonIcon" src="img/icons/play.svg" alt="">
-                    <span id="startButtonText">Dispensing unavailable</span>
+                    <span id="startButtonText">START</span>
                 </button>
 
             </section>
 
-            <!-- Profiles -->
             <section id="profilesPage" class="page" hidden>
 
                 <header class="header">
@@ -347,7 +344,15 @@
 
                             <label for="trickleSpeedPercent">Trickle speed (%)</label>
 
-                            <input id="trickleSpeedPercent" type="number" min="0" max="100" step="0.1" value="5" required>
+                            <input id="trickleSpeedPercent" type="number" min="0" max="100" step="0.1" value="50" required>
+
+                        </div>
+
+                        <div class="slider-row">
+
+                            <label for="tricklePulseTimeMs">Trickle pulse time (ms)</label>
+
+                            <input id="tricklePulseTimeMs" type="number" min="1" max="4294967295" step="1" value="100" required>
 
                         </div>
 

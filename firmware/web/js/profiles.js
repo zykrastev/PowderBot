@@ -11,10 +11,19 @@ const stopInput = document.getElementById("stopPercent");
 const coarseSpeedInput = document.getElementById("coarseSpeedPercent");
 const fineSpeedInput = document.getElementById("fineSpeedPercent");
 const trickleSpeedInput = document.getElementById("trickleSpeedPercent");
+const tricklePulseTimeInput = document.getElementById("tricklePulseTimeMs");
 const settleTimeInput = document.getElementById("settleTimeMs");
 
 let profiles = [];
 let selectedProfile = null;
+let dispensing = false;
+window.addEventListener("controller-state", event => {
+    dispensing = event.detail;
+    for (const input of [nameInput, fineStartInput, trickleStartInput, stopInput, coarseSpeedInput, fineSpeedInput, trickleSpeedInput, tricklePulseTimeInput, settleTimeInput]) input.disabled = dispensing;
+    newButton.disabled = dispensing;
+    saveButton.disabled = dispensing;
+    deleteButton.disabled = dispensing || !selectedProfile || selectedProfile.isNew;
+});
 
 newButton.addEventListener("click", createProfile);
 saveButton.addEventListener("click", saveProfile);
@@ -48,7 +57,8 @@ function newProfile() {
         stopPercent: 99.5,
         coarseSpeedPercent: 100.0,
         fineSpeedPercent: 30.0,
-        trickleSpeedPercent: 5.0,
+        trickleSpeedPercent: 50.0,
+        tricklePulseTimeMs: 100,
         settleTimeMs: 300,
         isNew: true
     };
@@ -56,6 +66,7 @@ function newProfile() {
 
 function createProfile() {
 
+    if (dispensing) return;
     selectProfile(newProfile());
     nameInput.focus();
     nameInput.select();
@@ -70,7 +81,8 @@ function selectProfile(profile) {
     stopInput.value = profile.stopPercent;
     coarseSpeedInput.value = profile.coarseSpeedPercent;
     fineSpeedInput.value = profile.fineSpeedPercent;
-    trickleSpeedInput.value = profile.trickleSpeedPercent;
+    trickleSpeedInput.value = profile.trickleSpeedPercent ?? 50.0;
+    tricklePulseTimeInput.value = profile.tricklePulseTimeMs ?? 100;
     settleTimeInput.value = profile.settleTimeMs;
     deleteButton.disabled = profile.isNew;
     renderProfileList();
@@ -107,6 +119,7 @@ function readForm() {
         coarseSpeedPercent: Number(coarseSpeedInput.value),
         fineSpeedPercent: Number(fineSpeedInput.value),
         trickleSpeedPercent: Number(trickleSpeedInput.value),
+        tricklePulseTimeMs: Number(tricklePulseTimeInput.value),
         settleTimeMs: Number(settleTimeInput.value)
     };
 
@@ -119,8 +132,9 @@ function readForm() {
         !isValidPercent(profile.coarseSpeedPercent) ||
         !isValidPercent(profile.fineSpeedPercent) ||
         !isValidPercent(profile.trickleSpeedPercent) ||
+        !Number.isInteger(profile.tricklePulseTimeMs) || profile.tricklePulseTimeMs < 1 || profile.tricklePulseTimeMs > 4294967295 ||
         !Number.isInteger(profile.settleTimeMs) || profile.settleTimeMs < 0 || profile.settleTimeMs > 4294967295) {
-        throw new Error("Enter percentages from 0 to 100, ordered start/stop thresholds, and a whole-number settle time in milliseconds.");
+        throw new Error("Enter percentages from 0 to 100, ordered start/stop thresholds, a whole-number pulse time of at least 1 ms, and a nonnegative whole-number settle time. Times must be at most 4294967295 ms.");
     }
 
     delete profile.isNew;
@@ -133,6 +147,7 @@ function isValidPercent(value) {
 }
 
 async function saveProfile() {
+    if (dispensing) return;
 
     try {
         const profile = readForm();
@@ -149,13 +164,13 @@ async function saveProfile() {
         window.alert(error.message);
     }
     finally {
-        saveButton.disabled = false;
+        saveButton.disabled = dispensing;
     }
 }
 
 async function deleteProfile() {
 
-    if (selectedProfile.isNew || !window.confirm(`Delete '${selectedProfile.name}'?`))
+    if (dispensing || selectedProfile.isNew || !window.confirm(`Delete '${selectedProfile.name}'?`))
         return;
 
     try {
@@ -167,6 +182,6 @@ async function deleteProfile() {
         window.alert(error.message);
     }
     finally {
-        deleteButton.disabled = false;
+        deleteButton.disabled = dispensing || selectedProfile.isNew;
     }
 }
