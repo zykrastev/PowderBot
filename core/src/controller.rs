@@ -2,6 +2,15 @@ use crate::profile::Profile;
 use std::time::{Duration, Instant};
 
 pub const FRESHNESS: Duration = Duration::from_millis(400);
+
+pub fn weight_is_zero(weight: f64, tolerance: f64) -> bool {
+    // Scale readings originate as f32. Allow only their representation error
+    // at the inclusive tolerance boundary (e.g. a reading of 0.05 grains).
+    weight.is_finite()
+        && tolerance.is_finite()
+        && tolerance > 0.0
+        && weight.abs() <= tolerance + tolerance * f64::from(f32::EPSILON)
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Idle,
@@ -116,6 +125,12 @@ impl Controller {
         if !valid {
             self.fail("Invalid dispensing settings");
             return Err(self.error.clone().unwrap());
+        }
+        if !weight_is_zero(weight, run.tolerance) {
+            return Err(format!(
+                "Empty and tare the scale before starting (weight must be 0 ± {} gr)",
+                run.tolerance
+            ));
         }
         self.error = None;
         self.topping_up = weight >= run.target * f64::from(run.profile.stop_percent) / 100.0;

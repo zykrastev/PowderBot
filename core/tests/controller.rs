@@ -25,7 +25,8 @@ fn phase_thresholds_and_hard_cutoff() {
 fn pulses_wait_for_time_and_a_new_reading_before_topping_up() {
     let t = Instant::now();
     let mut c = Controller::default();
-    c.start(run(), Some((98.0, t)), t).unwrap();
+    c.start(run(), Some((0.0, t)), t).unwrap();
+    c.tick(Some((98.0, t)), t);
     c.tick(Some((98.0, t)), t + Duration::from_millis(99));
     assert_eq!(c.speed(), 50.0);
     c.tick(Some((98.0, t)), t + Duration::from_millis(100));
@@ -49,10 +50,9 @@ fn stop_scale_loss_and_initial_limits_never_leave_motion_running() {
     let mut c = Controller::default();
     assert!(c.start(run(), None, t).is_err());
     assert_eq!(c.speed(), 0.0);
-    c.start(run(), Some((100.03, t)), t).unwrap();
-    assert_eq!(c.state(), State::Overthrown);
-    c.start(run(), Some((100.0, t)), t).unwrap();
-    assert_eq!(c.state(), State::Finished);
+    assert!(c.start(run(), Some((100.03, t)), t).is_err());
+    assert!(c.start(run(), Some((100.0, t)), t).is_err());
+    assert_eq!(c.speed(), 0.0);
     c.start(run(), Some((0.0, t)), t).unwrap();
     c.tick(None, t);
     assert_eq!(c.state(), State::Error);
@@ -80,10 +80,30 @@ fn settings_validation_and_zero_speed_fail_closed() {
 fn pulse_duration_begins_when_driver_starts() {
     let t = Instant::now();
     let mut c = Controller::default();
-    c.start(run(), Some((98.0, t)), t).unwrap();
+    c.start(run(), Some((0.0, t)), t).unwrap();
+    c.tick(Some((98.0, t)), t);
     c.motion_started(t + Duration::from_millis(20));
     c.tick(Some((98.0, t)), t + Duration::from_millis(110));
     assert_eq!(c.state(), State::Trickling);
     c.tick(Some((98.0, t)), t + Duration::from_millis(120));
     assert_eq!(c.state(), State::Settling);
+}
+
+#[test]
+fn start_requires_zero_within_tolerance_without_creating_a_finished_run() {
+    let t = Instant::now();
+    for weight in [0.020001, -0.020001, 50.0, 100.0, 100.03] {
+        let mut c = Controller::default();
+        assert!(
+            c.start(run(), Some((weight, t)), t).is_err(),
+            "weight {weight} should block Start"
+        );
+        assert_eq!(c.state(), State::Idle);
+        assert_eq!(c.speed(), 0.0);
+    }
+    for weight in [-0.02, 0.0, 0.02] {
+        let mut c = Controller::default();
+        c.start(run(), Some((weight, t)), t).unwrap();
+        assert_eq!(c.state(), State::Coarse);
+    }
 }
