@@ -1,5 +1,27 @@
+use crate::controller::State;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
+use std::{collections::VecDeque, sync::Arc};
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Load {
+    id: u64,
+    uptime_ms: u64,
+    powder_name: String,
+    target_weight: f64,
+    measured_weight: f64,
+    tolerance: f64,
+    accepted: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadHistory<'a> {
+    loads: &'a VecDeque<Load>,
+    revision: u64,
+    uptime_ms: u64,
+}
 
 #[derive(Clone)]
 pub struct Dashboard {
@@ -12,6 +34,11 @@ pub struct Dashboard {
     error: Option<String>,
     target: f64,
     tolerance: f64,
+    boot: Instant,
+    loads: Arc<VecDeque<Load>>,
+    load_revision: u64,
+    next_load_id: u64,
+    overthrow_alert: bool,
 }
 impl Default for Dashboard {
     fn default() -> Self {
@@ -25,6 +52,11 @@ impl Default for Dashboard {
             error: None,
             target: 0.0,
             tolerance: 0.02,
+            boot: Instant::now(),
+            loads: Arc::new(VecDeque::new()),
+            load_revision: 0,
+            next_load_id: 1,
+            overthrow_alert: false,
         }
     }
 }
@@ -70,9 +102,13 @@ impl Dashboard {
             "stable":fresh && self.stable_since.is_some_and(|time| now.saturating_duration_since(time)>=Duration::from_secs(1)), "scaleConnected":fresh, "scaleError":error,
             "sampleAgeMs":age.map(|age| age.as_millis().min(u64::MAX as u128) as u64),
             "state":self.controller.state().name(), "controllerError":self.controller.error(),
+            "loadRevision":self.load_revision, "uptimeMs":self.uptime_ms(now),
+            "overthrowAlert":self.overthrow_alert,
             "powder":self.profile, "powderStorageName":self.storage_name,
             "motorSpeedPercent":self.controller.speed(), "effectiveTrickleSpeedPercent":50,
             "dispensing":self.controller.state().active(),
+            "canStart": !self.controller.state().active() && self.target > 0.0
+                && weight.is_some_and(|w| crate::controller::weight_is_zero(f64::from(w), self.tolerance)),
             "capabilities":{"dispensing":true,"tare":true,"reset":true}
         })
     }
@@ -83,7 +119,11 @@ impl Dashboard {
             .map(|(w, t)| (f64::from(w), t))
     }
     pub fn tick(&mut self, now: Instant) {
+        let active = self.controller.state().active();
         self.controller.tick(self.reading(now), now);
+        if active {
+            self.record_completed_load(now);
+        }
     }
     pub fn start(&mut self, now: Instant) -> Result<(), String> {
         self.controller.start(
@@ -94,9 +134,62 @@ impl Dashboard {
             },
             self.reading(now),
             now,
-        )
+        )?;
+        self.overthrow_alert = false;
+        self.record_completed_load(now);
+        Ok(())
+    }
+    fn uptime_ms(&self, now: Instant) -> u64 {
+        now.saturating_duration_since(self.boot)
+            .as_millis()
+            .min(u64::MAX as u128) as u64
+    }
+    fn record_completed_load(&mut self, now: Instant) {
+        let state = self.controller.state();
+        if !matches!(state, State::Finished | State::Overthrown) {
+            return;
+        }
+        self.overthrow_alert = state == State::Overthrown;
+        let Some((weight, _)) = self.reading(now) else {
+            return;
+        };
+        let load = Load {
+            id: self.next_load_id,
+            uptime_ms: self.uptime_ms(now),
+            powder_name: self.profile.name.clone(),
+            target_weight: self.target,
+            measured_weight: weight,
+            tolerance: self.tolerance,
+            accepted: state == State::Finished,
+        };
+        let loads = Arc::make_mut(&mut self.loads);
+        if loads.len() == 200 {
+            loads.pop_front();
+        }
+        loads.push_back(load);
+        self.next_load_id += 1;
+        self.load_revision += 1;
+    }
+    pub fn load_history(&self, now: Instant) -> Result<Vec<u8>, serde_json::Error> {
+        // Serialize borrowed records directly: an intermediate JSON tree for 200
+        // rows would consume much of the ESP32's available heap.
+        serde_json::to_vec(&LoadHistory {
+            loads: &self.loads,
+            revision: self.load_revision,
+            uptime_ms: self.uptime_ms(now),
+        })
+    }
+    pub fn clear_load_history(&mut self) -> Result<(), String> {
+        if self.controller.state().active() {
+            return Err("Stop dispensing before resetting the load log".into());
+        }
+        self.loads = Arc::new(VecDeque::new());
+        self.next_load_id = 1;
+        self.load_revision += 1;
+        Ok(())
     }
     pub fn invalidate(&mut self) {
+        self.overthrow_alert = false;
         self.weight = None;
         self.sampled = None;
         self.stable_since = None;
