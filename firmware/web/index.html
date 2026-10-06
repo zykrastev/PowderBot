@@ -253,6 +253,26 @@
                     <img id="startButtonIcon" src="img/icons/play.svg" alt="">
                     <span id="startButtonText">START</span>
                 </button>
+                <p id="startRequirement" class="migration-note" role="status">Waiting for the device.</p>
+
+                <section id="loadLog" class="card load-log" aria-labelledby="loadLogTitle">
+                    <div class="load-log-header">
+                        <h2 id="loadLogTitle">Load log</h2>
+                        <div class="load-log-actions">
+                            <button id="downloadLoads" class="secondary-button" type="button" disabled>Download CSV</button>
+                            <button id="printLoads" class="secondary-button" type="button" disabled>Print</button>
+                            <button id="clearLoads" class="secondary-button" type="button" disabled>Reset log</button>
+                        </div>
+                    </div>
+                    <p id="loadLogNote">Latest 200 completed loads; cleared on reboot. Times are estimated from this browser’s clock.</p>
+                    <p id="loadLogStatus" role="status">Loading history…</p>
+                    <div class="load-table-scroll">
+                        <table class="load-table">
+                            <thead><tr><th scope="col">#</th><th scope="col">Timestamp</th><th scope="col">Powder</th><th scope="col">Target (gr)</th><th scope="col">Weighed (gr)</th><th scope="col">Tolerance (gr)</th><th scope="col">Result</th></tr></thead>
+                            <tbody id="loadLogRows"></tbody>
+                        </table>
+                    </div>
+                </section>
 
             </section>
 

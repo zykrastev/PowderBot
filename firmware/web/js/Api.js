@@ -20,6 +20,8 @@ async function request(path, method = "GET", body) {
 }
 export default {
     getStatus: () => request("/api/status"),
+    getLoads: () => request("/api/loads"),
+    clearLoads: () => request("/api/loads", "DELETE"),
     start: () => request("/api/start", "POST"),
     stop: () => request(`http://${location.hostname}:81/api/stop`, "POST"),
     tare: () => request("/api/tare", "POST"),

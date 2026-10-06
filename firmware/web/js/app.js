@@ -1,5 +1,6 @@
 import Api from "./Api.js";
 import "./profiles.js";
+import { updateLoadLog } from "./load-log.js";
 
 const byId = id => document.getElementById(id);
 const select = byId("dashboardProfileSelect");
