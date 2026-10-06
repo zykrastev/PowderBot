@@ -34,24 +34,52 @@ impl<'d> Display<'d> {
         Ok(display)
     }
 
-    pub fn show_weight(&mut self, weight: f32) -> Result<(), String> {
-        let value = format!("{weight:.3} GN");
-        // At 6 pixels per character, 21 characters fit on this display.
-        let value = if value.len() <= 21 {
-            value
-        } else {
-            format!("{weight:.3e} GN")
+    pub fn show_status(
+        &mut self,
+        state: &powderbot_core::dashboard::Dashboard,
+        now: std::time::Instant,
+    ) -> Result<(), String> {
+        let status = state.snapshot(now);
+        let value = |key: &str| {
+            status[key]
+                .as_f64()
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "--".into())
         };
-        self.screen(&value, "Scale connected")
+        self.lines(&[
+            "PowderBot".into(),
+            format!("Powder: {}", state.profile.name),
+            format!("Target: {} GN", value("targetWeight")),
+            format!("Now: {} GN", value("currentWeight")),
+            format!("Left: {} GN", value("remainingWeight")),
+            if status["scaleConnected"].as_bool() == Some(true) {
+                state.controller.state().name().into()
+            } else {
+                "Scale unavailable".into()
+            },
+        ])
     }
-
-    /// Replaces the weight completely, so an old value isn't shown as current.
-    pub fn show_scale_error(&mut self, reason: &str) -> Result<(), String> {
-        self.screen("Scale error", reason)
-    }
-
     pub fn show_network(&mut self, address: &str) -> Result<(), String> {
-        self.screen("WiFi: PowderBot", address)
+        self.lines(&[
+            "WiFi: PowderBot".into(),
+            "PW: powderbot".into(),
+            address.into(),
+            "Waiting for client".into(),
+        ])
+    }
+    pub fn show_connected(&mut self) -> Result<(), String> {
+        self.screen("WiFi", "Client connected")
+    }
+    fn lines(&mut self, lines: &[String]) -> Result<(), String> {
+        self.oled.clear_buffer();
+        let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+        for (i, line) in lines.iter().take(6).enumerate() {
+            let text: String = line.chars().take(21).collect();
+            Text::with_baseline(&text, Point::new(0, (i * 10) as i32), style, Baseline::Top)
+                .draw(&mut self.oled)
+                .map_err(|e| format!("OLED draw: {e:?}"))?;
+        }
+        self.oled.flush().map_err(|e| format!("OLED flush: {e:?}"))
     }
 
     fn screen(&mut self, value: &str, status: &str) -> Result<(), String> {

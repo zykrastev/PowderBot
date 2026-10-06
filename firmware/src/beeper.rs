@@ -11,10 +11,18 @@ use esp_idf_svc::sys::EspError;
 pub enum Sound {
     Boot,
     Error,
+    Connected,
+    Dispensing,
+    Finished,
+    Wrong,
 }
 
-// (frequency in Hz, duration in milliseconds), matching the C++ chimes.
+// (Hz, ms)
 const BOOT: &[(u32, u64)] = &[(523, 80), (659, 80), (784, 120)];
+const CONNECTED: &[(u32, u64)] = &[(1200, 60), (1200, 60)];
+const DISPENSING: &[(u32, u64)] = &[(600, 80)];
+const FINISHED: &[(u32, u64)] = &[(1200, 60), (1200, 60), (1200, 60)];
+const WRONG: &[(u32, u64)] = &[(800, 100), (500, 140), (250, 240)];
 const ERROR: &[(u32, u64)] = &[(300, 500)];
 
 pub struct Beeper {
@@ -31,17 +39,27 @@ impl Beeper {
             .name("beeper".into())
             .stack_size(4096)
             .spawn(move || {
-                while let Ok(sound) = receiver.recv() {
+                while let Ok(mut sound) = receiver.recv() {
+                    while let Ok(next) = receiver.try_recv() {
+                        if !matches!(sound, Sound::Error | Sound::Wrong)
+                            || matches!(next, Sound::Error | Sound::Wrong)
+                        {
+                            sound = next;
+                        }
+                    }
                     let notes = match sound {
                         Sound::Boot => BOOT,
                         Sound::Error => ERROR,
+                        Sound::Connected => CONNECTED,
+                        Sound::Dispensing => DISPENSING,
+                        Sound::Finished => FINISHED,
+                        Sound::Wrong => WRONG,
                     };
                     if let Err(error) = play_notes(&mut pwm, &mut timer, notes) {
                         log::error!("Beeper playback failed: {error}");
                         break;
                     }
                 }
-                // Silence on channel closure or a playback error.
                 if let Err(error) = pwm.set_duty(0) {
                     log::error!("Could not silence beeper: {error}");
                 }
