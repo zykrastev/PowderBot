@@ -9,10 +9,12 @@ const notice = byId("apiNotice");
 let running = false;
 let actionPending = false;
 let deviceReady = false;
+let canStart = false;
 const saving = new Set();
 function controls() {
     const start = byId("startButton");
-    start.disabled = actionPending || (!running && !deviceReady);
+    start.disabled = actionPending || (!running && (!deviceReady || !canStart));
+    start.title = running ? "Stop dispensing" : canStart ? "Start load" : "Empty and tare the scale before starting";
     byId("startButtonText").textContent = running ? "STOP" : "START";
     byId("startButtonIcon").src = running ? "img/icons/square.svg" : "img/icons/play.svg";
     start.classList.toggle("running", running);
@@ -96,7 +98,17 @@ async function poll() {
         network.textContent = "Connected";
         running = Boolean(status.dispensing);
         deviceReady = Boolean(status.capabilities?.dispensing);
+        canStart = Boolean(status.canStart);
+        byId("startRequirement").textContent = running || canStart ? "" :
+            !status.scaleConnected ? "Waiting for a fresh scale reading." :
+            status.targetWeight <= 0 ? "Set a target weight before starting." :
+            `Empty and tare the scale: Start requires 0 ± ${status.tolerance} gr.`;
         controls();
+        updateLoadLog(status);
+        const rejected = Boolean(status.overthrowAlert);
+        byId("overthrowAlert").hidden = !rejected;
+        document.querySelector(".status").classList.toggle("is-rejected", rejected);
+        document.querySelector(".weight-card").classList.toggle("is-rejected", rejected);
         window.dispatchEvent(new CustomEvent("controller-state", { detail: running }));
         if (document.activeElement !== target && !target.disabled) target.value = status.targetWeight.toFixed(2);
         if (document.activeElement !== tolerance && !tolerance.disabled) tolerance.value = status.tolerance.toFixed(2);
@@ -114,7 +126,7 @@ async function poll() {
             byId("progressBar").setAttribute("aria-valuenow", percent.toFixed(1));
             byId("progressPercent").textContent = `${percent.toFixed(1)}%`;
         } else { clearWeight(status.scaleError || "Scale unavailable"); }
-    } catch (error) { deviceReady = false; controls(); network.textContent = "Disconnected / retrying"; clearWeight("Device unavailable"); }
+    } catch (error) { deviceReady = false; canStart = false; controls(); byId("startRequirement").textContent = "Waiting for the device."; updateLoadLog(null); network.textContent = "Disconnected / retrying"; clearWeight("Device unavailable"); }
     finally { setTimeout(poll, 250); }
 }
 loadProfiles();

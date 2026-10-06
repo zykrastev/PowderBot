@@ -80,7 +80,7 @@
         </aside>
 
         <main class="content">
-            <p class="migration-note">Trickling uses the profile’s speed (50% by default) and pulse duration (100 ms by default), followed by its settling delay. <a href="/console">Open log console</a></p>
+            <p class="migration-note"><a href="/console">Open log console</a></p>
             <p id="apiNotice" role="alert"></p>
             <p id="profileWarning" role="status"></p>
             <section id="dashboardPage" class="page">
@@ -108,6 +108,10 @@
                 </header>
 
 
+                <div id="overthrowAlert" class="overthrow-alert" role="alert" hidden>
+                    <strong>Overthrow — load rejected</strong>
+                    <p>The measured weight exceeds the target tolerance. Remove this load and reset before continuing.</p>
+                </div>
                 <section class="top-grid">
 
                     <article class="card target-card">
