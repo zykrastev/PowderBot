@@ -21,6 +21,45 @@ pub fn register(
     control: Control,
     profiles: Option<SharedProfiles>,
 ) -> anyhow::Result<()> {
+    let history = control.clone();
+    server.fn_handler::<anyhow::Error, _>("/api/loads", Method::Get, move |request| {
+        let (code, body) = match history.snapshot() {
+            Ok(state) => match state.load_history(Instant::now()) {
+                Ok(body) => (200, body),
+                Err(error) => (500, Reply::error(500, &error.to_string()).body),
+            },
+            Err((code, error)) => (code, Reply::error(code, &error).body),
+        };
+        request
+            .into_response(
+                code,
+                None,
+                &[
+                    ("Content-Type", "application/json"),
+                    ("Cache-Control", "no-store"),
+                ],
+            )?
+            .write_all(&body)?;
+        Ok(())
+    })?;
+    let clear = control.clone();
+    server.fn_handler::<anyhow::Error, _>("/api/loads", Method::Delete, move |request| {
+        let reply = match clear.gate.lock() {
+            Ok(_guard) => result_reply(clear.submit(Command::ClearLoads)),
+            Err(_) => Reply::error(503, "Controller gate unavailable"),
+        };
+        request
+            .into_response(
+                reply.status,
+                None,
+                &[
+                    ("Content-Type", "application/json"),
+                    ("Cache-Control", "no-store"),
+                ],
+            )?
+            .write_all(&reply.body)?;
+        Ok(())
+    })?;
     let snapshot = control.clone();
     server.fn_handler::<anyhow::Error, _>("/api/status", Method::Get, move |request| {
         let (code, body) = match snapshot.snapshot() {
