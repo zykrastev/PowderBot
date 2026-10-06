@@ -1,81 +1,59 @@
-//! One blocking request/reply transaction for the scale bring-up milestone.
-//! Later, the controller will need a nonblocking polling state machine.
-
-use std::fmt;
-use std::thread;
-use std::time::{Duration, Instant};
-
-use esp_idf_svc::hal::{delay::NON_BLOCK, uart::UartDriver};
-use esp_idf_svc::sys::{EspError, ESP_ERR_TIMEOUT};
-use powderbot_core::scale_protocol::{parse_grains, ParseError};
-
-const PRINT_COMMAND: [u8; 2] = [0x1b, 0x70];
-const REPLY_TIMEOUT: Duration = Duration::from_millis(200);
-
-#[derive(Debug)]
-pub enum ScaleError {
-    Uart(EspError),
-    IncompleteWrite,
-    Timeout,
-    ReplyTooLong,
-    InvalidUtf8,
-    InvalidReply(ParseError),
+use esp_idf_svc::{
+    hal::{delay::NON_BLOCK, uart::UartDriver},
+    sys::ESP_ERR_TIMEOUT,
+};
+use powderbot_core::scale_poll::Poll;
+use std::time::Instant;
+pub struct Scale {
+    uart: UartDriver<'static>,
+    poll: Poll,
 }
-
-impl fmt::Display for ScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Uart(error) => write!(f, "UART error: {error}"),
-            Self::IncompleteWrite => write!(f, "print command was not fully written"),
-            Self::Timeout => write!(f, "no complete reply within 300 ms"),
-            Self::ReplyTooLong => write!(f, "reply exceeds the 32-byte buffer"),
-            Self::InvalidUtf8 => write!(f, "reply is not valid UTF-8 text"),
-            Self::InvalidReply(error) => write!(f, "invalid scale reply: {error:?}"),
+impl Scale {
+    pub fn new(uart: UartDriver<'static>) -> Self {
+        Self {
+            uart,
+            poll: Poll::default(),
         }
     }
-}
-
-/// Request one weight. Incomplete, oversized, and malformed replies are errors,
-/// never replacement weights. This function borrows the UART driver.
-pub fn read_weight(uart: &UartDriver<'_>) -> Result<f32, ScaleError> {
-    // Discard bytes left from an earlier transaction, as the C++ firmware does.
-    uart.clear_rx().map_err(ScaleError::Uart)?;
-    let written = uart.write(&PRINT_COMMAND).map_err(ScaleError::Uart)?;
-    if written != PRINT_COMMAND.len() {
-        return Err(ScaleError::IncompleteWrite);
-    }
-
-    let started = Instant::now();
-    let mut line = [0_u8; 32];
-    let mut length = 0;
-
-    while started.elapsed() < REPLY_TIMEOUT {
-        let mut byte = [0_u8; 1];
-        match uart.read(&mut byte, NON_BLOCK) {
-            Ok(0) => thread::sleep(Duration::from_millis(5)),
-            Ok(_) => match byte[0] {
-                b'\n' => {
-                    log::info!("Scale raw: {:?}", String::from_utf8_lossy(&line[..length]));
-                    let text = std::str::from_utf8(&line[..length])
-                        .map_err(|_| ScaleError::InvalidUtf8)?;
-                    return parse_grains(text).map_err(ScaleError::InvalidReply);
-                }
-                value => {
-                    if length == line.len() {
-                        return Err(ScaleError::ReplyTooLong);
-                    }
-                    line[length] = value;
-                    length += 1;
-                }
-            },
-            Err(error) if error.code() == ESP_ERR_TIMEOUT => {
-                // No data yet: yield CPU time and try again until our deadline.
-                thread::sleep(Duration::from_millis(5));
+    pub fn update(&mut self, now: Instant) -> Option<Result<f32, String>> {
+        if let Some(result) = self.poll.timeout(now) {
+            return Some(result);
+        }
+        if self.poll.due(now) {
+            self.poll.begin(now);
+            if let Err(error) = self.send(&[0x1b, 0x70]) {
+                self.poll.cancel(now);
+                return Some(Err(error));
             }
-            Err(error) => return Err(ScaleError::Uart(error)),
+        }
+        let mut bytes = [0u8; 32];
+        match self.uart.read(&mut bytes, NON_BLOCK) {
+            Ok(count) => {
+                for &byte in &bytes[..count] {
+                    if let Some(result) = self.poll.byte(byte) {
+                        return Some(result);
+                    }
+                }
+                None
+            }
+            Err(error) if error.code() == ESP_ERR_TIMEOUT => None,
+            Err(error) => {
+                self.poll.cancel(now);
+                Some(Err(error.to_string()))
+            }
         }
     }
-
-    log::warn!("Scale partial bytes: {:02x?}", &line[..length]);
-    Err(ScaleError::Timeout)
+    fn send(&self, command: &[u8]) -> Result<(), String> {
+        self.uart.clear_rx().map_err(|e| e.to_string())?;
+        let count = self.uart.write(command).map_err(|e| e.to_string())?;
+        if count == command.len() {
+            Ok(())
+        } else {
+            Err("Incomplete scale command write".into())
+        }
+    }
+    pub fn tare(&mut self, now: Instant) -> Result<(), String> {
+        self.poll.cancel(now);
+        self.send(&[0x1b, 0x74])
+    }
 }
