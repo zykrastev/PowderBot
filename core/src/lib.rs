@@ -7,3 +7,7 @@ pub mod profile_store;
 pub mod scale_protocol;
 
 pub mod dashboard;
+
+pub mod controller;
+
+pub mod scale_poll;
