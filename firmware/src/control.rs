@@ -3,9 +3,9 @@ use esp_idf_svc::hal::uart::UartDriver;
 use powderbot_core::{controller::State, dashboard::Dashboard, profile_store::StoredProfile};
 use std::{
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc::{self, Receiver, SyncSender},
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -19,6 +19,7 @@ pub enum Command {
     Reset,
     Settings(Vec<u8>),
     Profile(Option<StoredProfile>),
+    ClearLoads,
 }
 struct Envelope {
     command: Command,
@@ -207,15 +208,19 @@ pub fn spawn(
                 shared
                     .running
                     .store(state.controller.state().active(), Ordering::SeqCst);
+                let mut started = false;
                 if let Some((reply, result, starts)) = completed {
                     if starts {
                         shared.pending.store(false, Ordering::SeqCst);
                     }
                     let result = motor_result.map_err(|e| (500, e)).and(result);
+                    started = starts && result.is_ok();
                     let _ = reply.try_send(result);
                 }
                 let current = state.controller.state();
-                if current != previous {
+                if current != previous
+                    || (started && matches!(current, State::Finished | State::Overthrown))
+                {
                     let _ = events.try_send(Event::State(current));
                     previous = current;
                 }
@@ -286,5 +291,6 @@ fn execute(command: Command, state: &mut Dashboard, scale: &mut Scale, now: Inst
             state.update_settings(&bytes).map_err(|e| (400, e))
         }
         Command::Profile(profile) => state.select(profile).map_err(|e| (409, e)),
+        Command::ClearLoads => state.clear_load_history().map_err(|e| (409, e)),
     }
 }

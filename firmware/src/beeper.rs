@@ -1,4 +1,3 @@
-
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread;
 use std::time::Duration;
@@ -22,7 +21,15 @@ const BOOT: &[(u32, u64)] = &[(523, 80), (659, 80), (784, 120)];
 const CONNECTED: &[(u32, u64)] = &[(1200, 60), (1200, 60)];
 const DISPENSING: &[(u32, u64)] = &[(600, 80)];
 const FINISHED: &[(u32, u64)] = &[(1200, 60), (1200, 60), (1200, 60)];
-const WRONG: &[(u32, u64)] = &[(800, 100), (500, 140), (250, 240)];
+// Two descending bursts are deliberately longer and lower than the success chime.
+const WRONG: &[(u32, u64)] = &[
+    (800, 180),
+    (500, 220),
+    (250, 300),
+    (800, 180),
+    (500, 220),
+    (250, 300),
+];
 const ERROR: &[(u32, u64)] = &[(300, 500)];
 
 pub struct Beeper {
