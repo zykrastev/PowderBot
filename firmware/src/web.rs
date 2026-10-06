@@ -1,4 +1,3 @@
-//! Bundled dashboard assets and log viewer on the PowderBot access point.
 
 use embedded_svc::{http::Method, io::Write};
 use esp_idf_svc::{
@@ -16,8 +15,8 @@ const PASSWORD: &str = "powderbot";
 const PAGE: &str = include_str!("../web/index.html");
 include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 
-// Retaining these objects keeps the server and Wi-Fi alive.
 pub struct WebConsole {
+    _stop_server: Option<EspHttpServer<'static>>,
     _server: EspHttpServer<'static>,
     _wifi: BlockingWifi<EspWifi<'static>>,
     pub address: String,
@@ -47,7 +46,6 @@ impl WebConsole {
         let address = wifi.wifi().ap_netif().get_ip_info()?.ip.to_string();
 
         let mut server = EspHttpServer::new(&ServerConfiguration {
-            // Profile parsing currently uses unoptimized core code (LLVM workaround).
             stack_size: 32768,
             max_uri_handlers: 64,
             ..Default::default()
@@ -70,7 +68,6 @@ impl WebConsole {
                 let history = logs.lock().unwrap_or_else(|error| error.into_inner());
                 history.snapshot()
             };
-            // Send after releasing the lock, so a slow client doesn't block logs.
             request
                 .into_response(
                     200,
@@ -97,6 +94,7 @@ impl WebConsole {
         }
         log::info!("Dashboard ready: Wi-Fi {SSID}, http://{address}/; logs at /console");
         Ok(Self {
+            _stop_server: None,
             _server: server,
             _wifi: wifi,
             address,
@@ -106,13 +104,24 @@ impl WebConsole {
     pub fn register_profiles(
         &mut self,
         profiles: Option<crate::api::SharedProfiles>,
+        control: crate::control::Control,
     ) -> anyhow::Result<()> {
-        crate::api::register(&mut self._server, profiles)
+        crate::api::register(&mut self._server, profiles, control)
     }
     pub fn register_dashboard(
         &mut self,
-        state: crate::dashboard::SharedDashboard,
+        control: crate::control::Control,
+        profiles: Option<crate::api::SharedProfiles>,
     ) -> anyhow::Result<()> {
-        crate::dashboard::register(&mut self._server, state)
+        self._stop_server = Some(crate::dashboard::stop_server(control.clone())?);
+        crate::dashboard::register(&mut self._server, control, profiles)
+    }
+    pub fn has_client(&self) -> Result<bool, esp_idf_svc::sys::EspError> {
+        let mut stations = esp_idf_svc::sys::wifi_sta_list_t::default();
+        // SAFETY: Wi-Fi is initialized and stations is a valid output buffer.
+        esp_idf_svc::sys::esp!(unsafe {
+            esp_idf_svc::sys::esp_wifi_ap_get_sta_list(&mut stations)
+        })?;
+        Ok(stations.num > 0)
     }
 }

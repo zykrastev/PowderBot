@@ -26,19 +26,13 @@ use esp_idf_svc::hal::units::Hertz;
 compile_error!("Use storage bring-up features separately from motor-test");
 
 fn main() -> anyhow::Result<()> {
-    // It is necessary to call this function once. Otherwise, some patches to the runtime
-    // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
 
-    // Mirror existing Rust log calls to serial and the browser's recent history.
     let logs = web_log::init()?;
 
-    // Taking ownership prevents two drivers from claiming the same peripheral.
     let peripherals = Peripherals::take()?;
     let pins = pins::BoardPins::new(peripherals.pins);
 
-    // Motor timer1/channel1 is independent of beeper timer0/channel0.
-    // It is initialized disabled and has no speed until explicitly configured.
     let mut motor = stepper::Stepper::new(
         peripherals.ledc.timer1,
         peripherals.ledc.channel1,
@@ -78,7 +72,6 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Keep the boot message visible during this bring-up milestone.
     thread::sleep(Duration::from_millis(500));
 
     let config = config::Config::default()

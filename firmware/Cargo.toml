@@ -8,7 +8,7 @@ rust-version = "1.82"
 
 [[bin]]
 name = "firmware"
-harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+harness = false
 
 [profile.release]
 opt-level = "s"
@@ -35,7 +35,6 @@ embedded-svc = "0.29"
 ssd1306 = "0.10"
 embedded-graphics = "0.8"
 esp-idf-svc = { version = "0.53", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
-# Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
 embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 powderbot-core = { version = "0.1.0", path = "../core" }
 
@@ -45,7 +44,6 @@ default = []
 motor-test = []
 # Formats only after a failed mount; remove from the image after initialization.
 storage-init = []
-# Writes a reserved probe once, then verifies it on subsequent boots.
 storage-test = []
 
 [[package.metadata.esp-idf-sys.extra_components]]

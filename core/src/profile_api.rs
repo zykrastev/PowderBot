@@ -1,4 +1,3 @@
-//! HTTP-independent profile endpoint semantics, shared with host tests.
 use crate::{
     profile::{Profile, validate_storage_name},
     profile_store::{MAX_FILE_BYTES, ProfileStore, StoreError, StoredProfile},
@@ -126,7 +125,6 @@ fn storage_error(error: StoreError) -> Reply {
         StoreError::NotFound => 404,
         StoreError::AlreadyExists => 409,
         StoreError::Capacity => 409,
-        // User input has already been validated; errors here concern stored data.
         _ => 500,
     };
     Reply::error(status, &error.to_string())

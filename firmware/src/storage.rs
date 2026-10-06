@@ -1,4 +1,3 @@
-//! Owns the flash mount. Dropping this object unmounts LittleFS.
 use anyhow::Context;
 use esp_idf_svc::{fs::littlefs::Littlefs, io::vfs::MountedLittlefs};
 use powderbot_core::profile_store::ProfileStore;

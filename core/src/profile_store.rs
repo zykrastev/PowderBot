@@ -1,5 +1,3 @@
-//! Single-owner JSON store. Callers must serialize access to a given directory.
-//! Recovery is tested on host filesystems; flash power-loss behavior needs board tests.
 use crate::profile::{Profile, ProfileError, valid_name, validate_storage_name};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -70,7 +68,6 @@ pub struct ProfileStore {
     root: PathBuf,
 }
 impl ProfileStore {
-    /// The caller mounts/creates the directory and retains exclusive write ownership.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
         let root = root.as_ref().to_owned();
         if !fs::metadata(&root)?.is_dir() {
@@ -127,8 +124,6 @@ impl ProfileStore {
         Ok(listing)
     }
 
-    /// An error is a diagnostic, never permission to use a previous selection.
-    /// Callers must treat errors as no active profile and report them.
     pub fn active(&mut self) -> Result<Option<StoredProfile>, StoreError> {
         let Some(bytes) = self.recover("active_profile", validate_selection)? else {
             return Ok(None);

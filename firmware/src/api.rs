@@ -1,4 +1,3 @@
-//! Thin HTTP adapter. Pure endpoint behavior lives in powderbot-core.
 use embedded_svc::{http::Method, io::Write};
 use esp_idf_svc::http::server::EspHttpServer;
 use powderbot_core::{

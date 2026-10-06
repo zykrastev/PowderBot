@@ -1,4 +1,3 @@
-//! SSD1306 128x64 OLED screens for scale bring-up.
 
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
@@ -24,7 +23,6 @@ pub struct Display<'d> {
 }
 
 impl<'d> Display<'d> {
-    /// Takes ownership of the I2C driver and initializes the OLED at 0x3C.
     pub fn new(i2c: I2cDriver<'d>) -> Result<Self, String> {
         let interface = I2CDisplayInterface::new_custom_address(i2c, 0x3c);
         let mut oled = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
@@ -66,7 +64,6 @@ impl<'d> Display<'d> {
                 .map_err(|error| format!("OLED draw: {error:?}"))?;
         }
 
-        // Drawing above changes RAM; this sends the pixels to the real screen.
         self.oled
             .flush()
             .map_err(|error| format!("OLED flush: {error:?}"))

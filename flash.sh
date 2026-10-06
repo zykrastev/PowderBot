@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Run from anywhere. Optional arguments are passed to espflash (e.g. --port).
 set -euo pipefail
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -11,7 +10,6 @@ fi
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Load the toolchain environment when installed at the usual location.
 if [[ -f "$HOME/export-esp.sh" ]]; then
     source "$HOME/export-esp.sh"
 fi

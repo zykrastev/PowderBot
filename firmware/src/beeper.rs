@@ -1,4 +1,3 @@
-//! PWM playback in a dedicated task, independent of blocking scale reads.
 
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread;
@@ -23,7 +22,6 @@ pub struct Beeper {
 }
 
 impl Beeper {
-    /// Moves the PWM channel and its timer into the playback task.
     pub fn new(
         mut pwm: LedcDriver<'static>,
         mut timer: LedcTimerDriver<'static, LowSpeed>,
@@ -51,7 +49,6 @@ impl Beeper {
         Ok(Self { sender })
     }
 
-    /// Enqueue a sound without waiting for playback or queue space.
     pub fn play(&self, sound: Sound) -> Result<(), TrySendError<Sound>> {
         self.sender.try_send(sound)
     }
@@ -65,7 +62,6 @@ fn play_notes(
     for &(frequency, duration_ms) in notes {
         timer.set_frequency(Hertz(frequency))?;
         pwm.set_duty(pwm.get_max_duty() / 2)?;
-        // Only this task sleeps. The scale/display task keeps running.
         thread::sleep(Duration::from_millis(duration_ms));
         pwm.set_duty(0)?;
         thread::sleep(Duration::from_millis(20));

@@ -50,7 +50,6 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const text = await response.text();
         if (!paused) {
-          // Treat device output as text, never as HTML.
           output.textContent = text || 'No messages yet.';
           if (follow.checked) output.scrollTop = output.scrollHeight;
           status.textContent = 'Connected · ' + new Date().toLocaleTimeString();
@@ -61,7 +60,6 @@
         clearTimeout(timeout);
       }
     }
-    // Poll sequentially: never accumulate requests on a slow connection.
     setTimeout(poll, 1000);
   }
   poll();

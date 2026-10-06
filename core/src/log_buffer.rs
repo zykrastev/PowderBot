@@ -1,4 +1,3 @@
-//! Bounded recent-log history for the browser, independent of ESP32 hardware.
 
 use std::collections::VecDeque;
 
@@ -13,7 +12,6 @@ pub struct LogBuffer {
 impl LogBuffer {
     pub fn push(&mut self, message: &str) {
         let mut end = message.len().min(MAX_LINE_BYTES);
-        // Truncation must not split a multibyte UTF-8 character.
         while !message.is_char_boundary(end) {
             end -= 1;
         }

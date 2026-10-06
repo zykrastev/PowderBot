@@ -1,4 +1,3 @@
-//! Mirror Rust log messages to serial and a bounded browser history.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -51,7 +50,6 @@ impl Log for MirrorLogger {
                 .unwrap_or_else(|error| error.into_inner());
             history.push(&line);
         }
-        // Never hold the history lock during serial output or a network write.
         self.serial.log(record);
     }
 

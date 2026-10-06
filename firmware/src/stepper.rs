@@ -1,4 +1,3 @@
-//! Continuous hardware-timed STEP pulses. No queued steps or acceleration ramp.
 
 use std::thread;
 use std::time::Duration;
@@ -14,7 +13,7 @@ use powderbot_core::motor::{percent_to_hz, MAX_SPEED_HZ, MIN_SPEED_HZ};
 #[derive(Clone, Copy, Debug)]
 pub enum Direction {
     Forward,
-    #[allow(dead_code)] // Available to future controls; the bring-up test is forward only.
+    #[allow(dead_code)]
     Reverse,
 }
 
@@ -27,7 +26,6 @@ pub struct Stepper {
     running: bool,
 }
 
-// Some controls are first used by the forthcoming controller/web integration.
 #[allow(dead_code)]
 impl Stepper {
     pub fn new(
@@ -37,7 +35,6 @@ impl Stepper {
         direction: Gpio32<'static>,
         enable: Gpio25<'static>,
     ) -> Result<Self, EspError> {
-        // Disable the driver before attaching hardware PWM to STEP.
         let mut enable = PinDriver::output(enable)?;
         enable.set_high()?;
         let direction = PinDriver::output(direction)?;
@@ -68,7 +65,6 @@ impl Stepper {
         self.set_speed_hz(hz)
     }
 
-    /// Zero stops. Other values must be 10..=2667 Hz. Does not start a stopped motor.
     pub fn set_speed_hz(&mut self, hz: u32) -> Result<(), EspError> {
         if hz == 0 {
             self.stop()?;
@@ -86,7 +82,6 @@ impl Stepper {
         Ok(())
     }
 
-    /// Change direction only while stopped. Forward is DIR high.
     pub fn set_direction(&mut self, direction: Direction) -> Result<(), EspError> {
         if self.running {
             return Err(EspError::from_infallible::<ESP_ERR_INVALID_STATE>());
@@ -153,7 +148,6 @@ impl Drop for Stepper {
     }
 }
 
-/// Explicitly enabled bring-up test. Runs once per boot, then returns stopped.
 #[cfg(feature = "motor-test")]
 pub fn run_test(motor: &mut Stepper) -> Result<(), EspError> {
     log::warn!("MOTOR SWEEP: 10% to 100%, starting forward motion in 3 seconds");
@@ -162,9 +156,6 @@ pub fn run_test(motor: &mut Stepper) -> Result<(), EspError> {
         motor.set_direction(Direction::Forward)?;
         motor.set_speed_percent(10.0)?;
         motor.start()?;
-        // Test-only ramp: 1 percentage point every 20 ms, with a two-second
-        // plateau at each 10% mark. The production driver still changes speed
-        // directly; it does not require periodic calls to generate pulses.
         for percent in 10..=100 {
             if percent > 10 {
                 motor.set_speed_percent(percent as f32)?;

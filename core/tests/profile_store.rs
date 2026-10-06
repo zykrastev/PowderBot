@@ -70,7 +70,7 @@ fn rejects_paths_reserved_names_and_bad_selection() {
     }
     assert!(store.select(Some("missing")).is_err());
     dir.put("active_profile.json", br#"{"storageName":"missing"}"#);
-    assert!(store.active().is_err()); // caller reports diagnostic and uses no selection
+    assert!(store.active().is_err());
     dir.put("active_profile.json", b"broken");
     assert!(store.active().is_err());
 }
