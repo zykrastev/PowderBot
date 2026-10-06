@@ -1,5 +1,6 @@
 mod api;
 mod beeper;
+mod control;
 mod dashboard;
 mod display;
 mod pins;
