@@ -9,5 +9,6 @@
   "coarseSpeedPercent": 100,
   "fineSpeedPercent": 50,
   "trickleSpeedPercent": 50,
+  "tricklePulseTimeMs": 100,
   "settleTimeMs": 300
 }

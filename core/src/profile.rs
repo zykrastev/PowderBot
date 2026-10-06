@@ -1,6 +1,16 @@
-//! The C++ version-1 JSON format, independent of hardware and storage.
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt};
+
+pub const DEFAULT_TRICKLE_SPEED_PERCENT: f32 = 50.0;
+pub const DEFAULT_TRICKLE_PULSE_TIME_MS: u32 = 100;
+
+fn default_trickle_speed_percent() -> f32 {
+    DEFAULT_TRICKLE_SPEED_PERCENT
+}
+
+fn default_trickle_pulse_time_ms() -> u32 {
+    DEFAULT_TRICKLE_PULSE_TIME_MS
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,7 +23,10 @@ pub struct Profile {
     pub stop_percent: f32,
     pub coarse_speed_percent: f32,
     pub fine_speed_percent: f32,
+    #[serde(default = "default_trickle_speed_percent")]
     pub trickle_speed_percent: f32,
+    #[serde(default = "default_trickle_pulse_time_ms")]
+    pub trickle_pulse_time_ms: u32,
     pub settle_time_ms: u32,
 }
 
@@ -59,6 +72,7 @@ impl Profile {
             "coarseSpeedPercent",
             "fineSpeedPercent",
             "trickleSpeedPercent",
+            "tricklePulseTimeMs",
             "settleTimeMs",
         ];
         let profile = if modern.iter().any(|key| value.get(key).is_some()) {
@@ -75,6 +89,9 @@ impl Profile {
                 trickle_speed: u8,
             }
             let old: Legacy = serde_json::from_value(value)?;
+            if old.trickle_speed > 100 {
+                return Err(ProfileError("Invalid trickle speed percentage".into()));
+            }
             Self {
                 version: old.version,
                 id: old.id,
@@ -85,6 +102,7 @@ impl Profile {
                 coarse_speed_percent: old.coarse_speed as f32,
                 fine_speed_percent: old.fine_speed as f32,
                 trickle_speed_percent: old.trickle_speed as f32,
+                trickle_pulse_time_ms: DEFAULT_TRICKLE_PULSE_TIME_MS,
                 settle_time_ms: 300,
             }
         };
@@ -115,11 +133,32 @@ impl Profile {
                 "Invalid version, name, percentage, or threshold order".into(),
             ));
         }
+        if self.trickle_pulse_time_ms == 0 {
+            return Err(ProfileError("Trickle pulse time must be at least 1 ms".into()));
+        }
         Ok(())
     }
 
     pub fn to_json(&self) -> Result<Vec<u8>, ProfileError> {
         self.validate()?;
         Ok(serde_json::to_vec(self)?)
+    }
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            id: "none".into(),
+            name: "None".into(),
+            fine_start_percent: 75.0,
+            trickle_start_percent: 97.0,
+            stop_percent: 99.5,
+            coarse_speed_percent: 100.0,
+            fine_speed_percent: 30.0,
+            trickle_speed_percent: DEFAULT_TRICKLE_SPEED_PERCENT,
+            trickle_pulse_time_ms: DEFAULT_TRICKLE_PULSE_TIME_MS,
+            settle_time_ms: 300,
+        }
     }
 }

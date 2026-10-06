@@ -7,7 +7,9 @@ fn modern_round_trip_and_legacy_conversion() {
     let p = support::profile();
     assert_eq!(Profile::from_json(&p.to_json().unwrap()).unwrap(), p);
     let legacy = br#"{"version":1,"id":"p1","name":"Test powder","coarseSpeed":100,"fineSpeed":30,"trickleSpeed":5}"#;
-    assert_eq!(Profile::from_json(legacy).unwrap(), p);
+    let mut legacy_expected = p.clone();
+    legacy_expected.trickle_speed_percent = 5.0;
+    assert_eq!(Profile::from_json(legacy).unwrap(), legacy_expected);
     let mut value: serde_json::Value = serde_json::from_slice(legacy).unwrap();
     value["settleTimeMs"] = json!(300);
     assert!(Profile::from_json(&serde_json::to_vec(&value).unwrap()).is_err());
@@ -18,6 +20,15 @@ fn rejects_incomplete_or_wrong_types() {
     let p = support::profile();
     let value: serde_json::Value = serde_json::from_slice(&p.to_json().unwrap()).unwrap();
     for key in value.as_object().unwrap().keys() {
+        if matches!(key.as_str(), "trickleSpeedPercent" | "tricklePulseTimeMs") {
+            let mut compatible = value.clone();
+            compatible.as_object_mut().unwrap().remove(key);
+            assert_eq!(
+                Profile::from_json(&serde_json::to_vec(&compatible).unwrap()).unwrap(),
+                p
+            );
+            continue;
+        }
         let mut bad = value.clone();
         bad.as_object_mut().unwrap().remove(key);
         assert!(
@@ -31,6 +42,11 @@ fn rejects_incomplete_or_wrong_types() {
         ("settleTimeMs", json!(1.5)),
         ("settleTimeMs", json!(4294967296_u64)),
         ("fineSpeedPercent", json!("30")),
+        ("trickleSpeedPercent", json!(101)),
+        ("tricklePulseTimeMs", json!(0)),
+        ("tricklePulseTimeMs", json!(-1)),
+        ("tricklePulseTimeMs", json!(1.5)),
+        ("tricklePulseTimeMs", json!(4294967296_u64)),
     ] {
         let mut bad = value.clone();
         bad[key] = bad_value;
